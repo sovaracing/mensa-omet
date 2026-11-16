@@ -91,6 +91,8 @@ header.band .who{margin-left:auto;display:flex;gap:6px;align-items:center}
 .hbtn .dot{background:var(--warn);color:#3a2a00;border-radius:999px;font-size:11px;padding:0 6px;font-weight:700}
 .demo{background:var(--warn-bg);border-bottom:1px solid var(--warn-b);font-size:13px}
 .demo .wrap{display:flex;gap:10px;align-items:center;padding-block:6px;flex-wrap:wrap}
+#busy{position:fixed;left:0;right:0;top:env(safe-area-inset-top,0px);height:3px;z-index:50;background:linear-gradient(90deg,transparent,#8FB4EA,transparent);background-size:40% 100%;background-repeat:no-repeat;animation:busy 1s linear infinite}
+@keyframes busy{from{background-position:-40% 0}to{background-position:140% 0}}
 .offline{background:var(--neu-bg);font-size:13px;text-align:center;padding:5px}
 main{padding-block:16px 10px;display:grid;gap:16px}
 .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
@@ -196,7 +198,7 @@ details.box summary{cursor:pointer;font-weight:600;color:var(--omet)}
   <span class="t">Mensa</span>
   <div class="who" id="who"></div>
 </div></header>
-<div id="bars"></div>
+<div id="busy" hidden></div><div id="bars"></div>
 <div class="wrap"><main id="app"><div class="empty">Caricamento della mensa…</div></main></div>
 <div class="foot" id="foot"></div>
 <div id="layer"></div>
@@ -249,13 +251,24 @@ function seedDemo(){
   c("esci",{},A);
   demoEnv.outbox.length=0; LS.setJson("prova.posta",[]);
 }
+const NO_RIPROVA = new Set(["registra","gestisciUtente","provaEmail","tickOra"]);
+let inCorso=0;
+function busy(d){ inCorso=Math.max(0,inCorso+d); const b=document.getElementById("busy"); if(b) b.hidden=!inCorso; }
 async function api(action, params){
+  if (DEMO) return api1(action, params);
+  busy(1);
+  try {
+    try { return await api1(action, params); }
+    catch(e){ if(e.code!=="rete"||NO_RIPROVA.has(action)||navigator.onLine===false) throw e; await new Promise(r=>setTimeout(r,1200)); return await api1(action, params); }
+  } finally { busy(-1); }
+}
+async function api1(action, params){
   const token = LS.get("token");
   if (DEMO) {
     try { return JSON.parse(JSON.stringify(demoCore.call(action, params||{}, token))); }
     catch(e){ if(e.code==="auth") sessionLost(); throw e; }
   }
-  const ctl = new AbortController(); const tm = setTimeout(()=>ctl.abort(), 30000);
+  const ctl = new AbortController(); const tm = setTimeout(()=>ctl.abort(), 40000);
   let res;
   try {
     res = await fetch(CFGAPP.apiUrl, { method:"POST", body: JSON.stringify({ action, params: params||{}, token }), signal: ctl.signal, redirect:"follow" });
@@ -273,15 +286,16 @@ const S = { me:null, cfg:null, settimane:[], week:null, wdata:null, view:"week",
 async function boot(){
   if (DEMO) { initDemo(); setInterval(()=>{ try{demoCore.tick()}catch(e){} }, 30000); try{demoCore.tick()}catch(e){} }
   renderFoot(); renderBars();
+  if (!DEMO && !LS.get("token")) api1("info").catch(()=>{});   // risveglia il server mentre si scrive il PIN
   if (LS.get("token")) await loadMe(); else render();
 }
 async function loadMe(){
   try {
-    const r = await api("io");
+    const r = await api("io",{lunedi:S.week||""});
     S.me = r.io; S.cfg = r.cfg; S.settimane = r.settimane; S.inAttesa = r.inAttesa||0; S.offline=false;
-    LS.setJson("cache.io", r);
-    if (!S.week || !S.settimane.some(w=>w.lunedi===S.week)) S.week = pickWeek();
-    await loadWeek();
+    const w = r.settimana; delete r.settimana; LS.setJson("cache.io", r);
+    if (w) { S.week = w.lunedi; setWeek(w); } else { S.week = pickWeek(); S.wdata=null; }
+    renderBars();
   } catch(e) {
     if (e.code==="rete") { const c=LS.json("cache.io",null); if(c){S.me=c.io;S.cfg=c.cfg;S.settimane=c.settimane;S.offline=true;if(!S.week)S.week=pickWeek();await loadWeek();return} }
     if (e.code!=="auth") toast(e.message);
@@ -289,6 +303,7 @@ async function loadMe(){
   render();
 }
 function pickWeek(){ const t=oggi(); const w=S.settimane.find(w=>w.giorni.some(d=>d>=t)); return w ? w.lunedi : (S.settimane.length ? S.settimane[S.settimane.length-1].lunedi : U.lunedi(t)); }
+function setWeek(w){ S.wdata=w; LS.setJson("cache.w."+w.lunedi,{t:new Date().toISOString(),d:w}); }
 async function loadWeek(){
   if (!S.week) return;
   try { S.wdata = await api("settimana",{lunedi:S.week}); LS.setJson("cache.w."+S.week, {t:new Date().toISOString(), d:S.wdata}); S.offline=false; }
@@ -506,18 +521,19 @@ function openDay(g, perConto){
     const b=$("#ok");b.disabled=true;b.textContent="Salvataggio…";
     const p={data:g.data,scelte:[...sel],acqua,nota:$("#nota").value};
     if(perConto){ if(perConto.uid)p.uid=perConto.uid; if(perConto.ospite){p.ospite=true;p.nomeOspite=$("#ospnome")?$("#ospnome").value:perConto.username} }
-    try{const r=await api("salvaOrdine",p);toast(r.invariato?"Nessuna modifica":(cl?"Salvato (fuori orario)":"Prenotazione salvata ✓"));sh.close();await afterChange()}
+    if(!perConto)p.conSettimana=true;
+    try{const r=await api("salvaOrdine",p);toast(r.invariato?"Nessuna modifica":(cl?"Salvato (fuori orario)":"Prenotazione salvata ✓"));sh.close();await afterChange(r.settimana)}
     catch(e){toast(e.message);b.disabled=false;b.textContent="Riprova"}
   }
   function confirmCancel(){
     const a=sh.root.querySelector(".actions");
     a.innerHTML=`<span style="flex:1;font-size:14px">${cl?"Orario limite superato: l'annullamento verrà segnalato come in ritardo.":"Confermi l'annullamento del pasto?"}</span><button class="btn" id="no">No</button><button class="btn danger" id="si">Sì, annulla</button>`;
     $("#no").onclick=draw;
-    $("#si").onclick=async()=>{try{await api("annullaOrdine",{data:g.data,uid:perConto?perConto.uid:undefined});toast(cl?"Annullato (segnalato in ritardo)":"Pasto annullato");sh.close();await afterChange()}catch(e){toast(e.message)}};
+    $("#si").onclick=async()=>{$("#si").disabled=true;try{const r=await api("annullaOrdine",{data:g.data,uid:perConto?perConto.uid:undefined,conSettimana:!perConto});toast(cl?"Annullato (segnalato in ritardo)":"Pasto annullato");sh.close();await afterChange(r.settimana)}catch(e){toast(e.message);$("#si").disabled=false}};
   }
   draw();
 }
-async function afterChange(){ if(S.view==="admin"){ renderAdmin($("#app")); } else { await loadWeek(); render(); } }
+async function afterChange(w){ if(S.view==="admin"){ renderAdmin($("#app")); return; } if(w&&w.lunedi===S.week)setWeek(w); else await loadWeek(); render(); }
 
 /* ---- profilo ---- */
 function openProfilo(){
@@ -609,7 +625,7 @@ async function tRiep(c){
      <div class="tile ${r.annullati.some(o=>o.tardivo)?"bad":""}"><div class="eyebrow">Annullati</div><div class="big">${r.annullati.length}</div></div>
      <div class="tile ${r.invii.length?"ok":"warn"}"><div class="eyebrow">Inviato</div><div style="font-size:14px;font-weight:600;margin-top:4px">${r.invii.length?"✓ "+esc(tsIt(r.invii[0].ts).slice(11))+"<br><span class='muted' style='font-weight:400'>"+esc(r.invii[0].da==="automatico"?"email automatica":r.invii[0].da)+"</span>":"⚠ non ancora"}</div></div></div>
    <div class="tot">${CATS.map(([k,lab])=>`<div class="c"><div class="eyebrow">${lab}</div>${r.piatti.filter(x=>x.cat===k).map(x=>`<div class="l ${r.conteggi[x.c]?"":"z"}"><span><span class="code">${esc(x.c)}</span> ${esc(cap(x.n))}</span><b>${r.conteggi[x.c]||"–"}</b></div>`).join("")}</div>`).join("")}</div>
-   <div class="row"><button class="btn primary" id="pdf">⎙ PDF del giorno</button><button class="btn" id="cpw">Copia per WhatsApp</button><a class="btn" id="wa" href="#" target="_blank" rel="noopener">🟢 Invia su WhatsApp</a></div>
+   <div class="row"><button class="btn primary" id="pdf">⎙ PDF del giorno</button><button class="btn" id="cpw">Copia per WhatsApp</button><a class="btn" id="wa" href="https://wa.me/?text=${encodeURIComponent(r.whatsapp)}" target="_blank" rel="noopener">🟢 Invia su WhatsApp</a></div>
    ${r.invii.length?`<details><summary class="muted" style="cursor:pointer;font-size:13px">Invii registrati (${r.invii.length})</summary><div class="kv" style="margin-top:6px">${r.invii.map(i=>`<dt>${esc(tsIt(i.ts))}</dt><dd>${descInvio(i)}</dd>`).join("")}</div></details>`:""}
   </div>
   <div class="box"><div class="row" style="justify-content:space-between"><h3>Foglio nominativo</h3><span class="muted" style="font-size:13px">${r.ok.length} persone</span></div>
@@ -620,13 +636,18 @@ async function tRiep(c){
   <div class="box"><h3>Annullamenti e variazioni</h3>
    ${r.registro.filter(x=>x.azione!=="prenota").length?`<div class="scroll"><table><thead><tr><th>Quando</th><th>Utente</th><th>Cosa</th><th>Orario</th><th class="hide-sm">Dettaglio</th></tr></thead><tbody>${r.registro.filter(x=>x.azione!=="prenota").map(x=>`<tr><td>${esc(tsIt(x.ts).slice(0,16))}</td><td>${esc(x.username)}${x.da!==x.username?` <span class="muted">(da ${esc(x.da)})</span>`:""}</td><td>${{modifica:"Variazione",annulla:"Annullamento",ripristina:"Nuovo dopo annullo"}[x.azione]||x.azione}</td><td>${x.entroLimite?'<span class="badge ok">✓ entro</span>':'<span class="badge bad">✗ fuori orario</span>'}${x.dopoInvio?' <span class="badge warn">⚠ dopo l\'invio</span>':""}</td><td class="hide-sm" style="white-space:normal;min-width:220px;font-size:13px">${esc(x.prima)} → ${esc(x.dopo)}</td></tr>`).join("")}</tbody></table></div>`:'<div class="muted">Nessuna variazione.</div>'}</div>`;
   $("#rd").onchange=e=>{S.riepDay=e.target.value;renderAdmin($("#app"))};
-  $("#pdf").onclick=async()=>{try{const d=await api("documento",{data:day});await api("registraInvio",{data:day,modo:"app"});stampaDoc(d.html,d.titolo)}catch(e){toast(e.message)}};
-  const wtxt=async(modo)=>{const d=await api("documento",{data:day});await api("registraInvio",{data:day,modo});return d.whatsapp};
-  $("#cpw").onclick=async()=>{try{const t=await wtxt("copia");try{await navigator.clipboard.writeText(t);toast("Testo copiato: incollalo su WhatsApp ✓")}catch(e){showText(t)}tRiep(c)}catch(e){toast(e.message)}};
-  $("#wa").onclick=async(ev)=>{ev.preventDefault();const w=window.open("about:blank","_blank");try{const t=await wtxt("whatsapp");const u="https://wa.me/?text="+encodeURIComponent(t);if(w)w.location.href=u;else location.href=u;tRiep(c)}catch(e){if(w)w.close();toast(e.message)}};
+  const traccia=modo=>{api("registraInvio",{data:day,modo}).then(()=>{if(S.view==="admin"&&S.tab==="riep"&&S.riepDay===day)tRiep(c)}).catch(e=>toast("Invio non registrato: "+e.message))};
+  $("#pdf").onclick=()=>{stampaDoc(r.html,r.titolo);traccia("app")};
+  $("#cpw").onclick=()=>{copia(r.whatsapp).then(ok=>{if(ok)toast("Testo copiato: incollalo su WhatsApp ✓");else showText(r.whatsapp)});traccia("copia")};
+  $("#wa").onclick=()=>{traccia("whatsapp")};
   c.querySelectorAll("[data-ed]").forEach(b=>b.onclick=()=>{const o=r.ok.find(x=>x.uid===b.dataset.ed);openDay(g,{uid:o.uid,username:o.username,ospite:o.ospite,ordine:o})});
   $("#addb").onclick=()=>{const v=$("#addp").value;if(!v){toast("Scegli una persona");return}const p=r.senzaOrdine.find(x=>x.id===v);const ex=r.annullati.find(o=>o.uid===v);openDay(g,{uid:v,username:p.username,ordine:ex||null})};
   $("#osp").onclick=()=>openDay(g,{ospite:true,username:"",ordine:null});
+}
+async function copia(t){
+  try{ if(navigator.clipboard&&window.isSecureContext){ await navigator.clipboard.writeText(t); return true; } }catch(e){}
+  try{ const a=document.createElement("textarea"); a.value=t; a.setAttribute("readonly",""); a.style.cssText="position:fixed;top:0;left:0;opacity:0;font-size:16px";
+    document.body.appendChild(a); a.select(); a.setSelectionRange(0,t.length); const ok=document.execCommand("copy"); a.remove(); return ok; }catch(e){ return false; }
 }
 function showText(t){const sh=sheet(`<div class="top"><h2>Testo per la mensa</h2><button class="btn sm x" data-close>✕</button></div><div class="muted" style="font-size:13px">Tieni premuto sul testo, Seleziona tutto, Copia.</div><pre class="txt" style="user-select:all;-webkit-user-select:all">${esc(t)}</pre>`)}
 function stampaDoc(html, titolo){
@@ -652,7 +673,9 @@ async function tArch(c){
      ${g.invii.length?`<div class="kv">${g.invii.map(i=>`<dt>${esc(tsIt(i.ts))}</dt><dd>${descInvio(i)}</dd>`).join("")}</div>`:`<div class="muted" style="font-size:13px">⚠ Nessun invio registrato</div>`}</div>`).join("")}</div>
    <div class="muted" style="font-size:13px">Gli invii automatici salvano il PDF anche nella cartella Drive della mensa, divisa per settimana.</div></div>`;
   $("#aw").onchange=e=>{S.archW=e.target.value;tArch(c)};
-  $("#apdf").onclick=async()=>{try{const d=await api("documento",{giorni:a.giorni.map(g=>g.data)});stampaDoc(d.html,d.titolo)}catch(e){toast(e.message)}};
+  $("#apdf").onclick=async()=>{try{const d=await api("documento",{giorni:a.giorni.map(g=>g.data)});
+      const sh=sheet(`<div class="top"><div><div class="eyebrow">Archivio</div><h2>PDF della settimana pronto</h2></div><button class="btn sm x" data-close>✕</button></div><div class="muted" style="font-size:13px">Nella finestra di stampa scegli <b>Salva come PDF</b>, orientamento orizzontale.</div><div class="row"><button class="btn primary" id="gostampa">⎙ Stampa / Salva PDF</button></div>`);
+      $("#gostampa").onclick=()=>{sh.close();stampaDoc(d.html,d.titolo)}}catch(e){toast(e.message)}};
   $("#acsv").onclick=async()=>{try{
     const L=[["Giorno","Utente","Stato","Piatti","Acqua","Nota","Inserito da","Fuori orario","Ultima modifica"]];
     for(const g of a.giorni){const r=await api("riepilogo",{data:g.data});r.ok.concat(r.annullati).forEach(o=>L.push([it(g.data),o.username,o.stato==="ok"?"Prenotato":"Annullato",o.scelte.join(" "),o.acqua,o.nota,o.inseritoDa,o.tardivo?"SI":"",tsIt(o.modificato)]));

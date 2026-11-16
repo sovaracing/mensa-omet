@@ -6,7 +6,7 @@
 var MensaCore = (function () {
   "use strict";
 
-  var VERSIONE = "v0.2";
+  var VERSIONE = "v0.2.1";
   var DATA_VERSIONE = "16/11/2026";
 
   /* ---------- schema delle tabelle (anche intestazioni del Foglio) ---------- */
@@ -287,7 +287,7 @@ var MensaCore = (function () {
       if (ex) S.update("ordini", "id", id, row); else S.insert("ordini", row);
       registra_(day, dest, azione, descr(ex, piatti), descr(row, piatti), !cl, u.username, inviato(day));
       if (azione !== "prenota" || c.notificaNuovi || cl || perConto) notificaAddetti(day, dest, azione, descr(ex, piatti), descr(row, piatti), !cl, u);
-      return { ordine: pubOrd(row) };
+      return { ordine: pubOrd(row), settimana: p.conSettimana ? settimana(u, { lunedi: lunedi(day) }) : undefined };
     }
 
     function annullaOrdine(u, p) {
@@ -296,13 +296,14 @@ var MensaCore = (function () {
       var cl = chiuso(day, c);
       if (cl && !isAddetto(u) && !c.annullaTardivo) throw err("chiuso", "Orario limite superato: per annullare chiedi agli addetti mensa.");
       var id = day + "_" + uid, ex = S.rows("ordini").filter(function (o) { return o.id === id; })[0];
-      if (!ex || ex.stato !== "ok") throw err("dati", "Non c'è un ordine da annullare.");
+      if (!ex) throw err("dati", "Non c'è un ordine da annullare.");
+      if (ex.stato !== "ok") return { ok: true, giaAnnullato: true, tardivo: !!ex.tardivo, settimana: p.conSettimana ? settimana(u, { lunedi: lunedi(day) }) : undefined };   // doppio invio dopo un errore di rete
       var n = now(), piatti = piattiDel(day);
       S.update("ordini", "id", id, { stato: "annullato", modificato: n.ts, tardivo: cl, inseritoDa: uid !== u.id ? u.username : ex.inseritoDa });
       var dest = { id: uid, username: ex.username };
       registra_(day, dest, "annulla", descr(ex, piatti), "nessun pasto", !cl, u.username, inviato(day));
       notificaAddetti(day, dest, "annulla", descr(ex, piatti), "nessun pasto", !cl, u);
-      return { ok: true, tardivo: cl };
+      return { ok: true, tardivo: cl, settimana: p.conSettimana ? settimana(u, { lunedi: lunedi(day) }) : undefined };
     }
 
     function registra_(day, dest, azione, prima, dopo, entro, da, dopoInvio) {
@@ -341,7 +342,11 @@ var MensaCore = (function () {
     /* ---------- riepilogo del giorno ---------- */
     function riepilogo(u, p) {
       serve(u, "addetto");
-      return riep(p.data);
+      var r = riep(p.data), titolo = "mensa_ordine_" + p.data;
+      r.titolo = titolo;
+      r.html = docHtml(htmlRiepilogo(r, stampa(u.username, "app")), titolo);
+      r.whatsapp = testoWhatsApp(r, "Inviato da " + u.username + " il " + tsIt(now().ts));
+      return r;
     }
     function riep(day) {
       var piatti = piattiDel(day), c = cfg();
@@ -523,6 +528,9 @@ var MensaCore = (function () {
     function segnaFatto(chiave) { S.insert("config", { chiave: "_fatto_" + chiave, valore: now().ts }); }
     function tick() {
       var c = cfg(), n = now(), fatti = [];
+      var limite = addDays(n.date, -40);
+      if (S.rows("config").some(function (r) { return r.chiave.indexOf("_fatto_") === 0 && String(r.valore || "").slice(0, 10) < limite; }))
+        S.removeWhere("config", function (r) { return r.chiave.indexOf("_fatto_") === 0 && String(r.valore || "").slice(0, 10) < limite; });
       // 1) mail "menu del giorno" a chi l'ha chiesta
       var oggi = n.date, piatti = piattiDel(oggi);
       if (piatti.length && n.time >= c.orarioMenuMail && !giaFatto("menu_" + oggi)) {
@@ -586,10 +594,15 @@ var MensaCore = (function () {
       }
       return { cfg: cfg(), quota: env.mail.quota ? env.mail.quota() : null, posta: S.rows("posta").slice(-40).reverse() };
     }
-    function io(u) {
+    function io(u, p) {
       var c = cfg();
+      var sett = settimane(), oggi = now().date, lun = p && p.lunedi;
+      if (!lun || !sett.some(function (w) { return w.lunedi === lun; })) {
+        var w0 = sett.filter(function (w) { return w.giorni.some(function (d) { return d >= oggi; }); })[0];
+        lun = w0 ? w0.lunedi : (sett.length ? sett[sett.length - 1].lunedi : "");
+      }
       var pub = { cutoff: c.cutoff, cutoffGiorno: c.cutoffGiorno, limiti: c.limiti, minPiatti: c.minPiatti, acqua: c.acqua, annullaTardivo: c.annullaTardivo, nomeMensa: c.nomeMensa };
-      var r = { io: pubblico(u), cfg: pubblico_cfg(pub), settimane: settimane(), oggi: now().date, ora: now().time };
+      var r = { io: pubblico(u), cfg: pubblico_cfg(pub), settimane: sett, oggi: oggi, ora: now().time, settimana: lun ? settimana(u, { lunedi: lun }) : null };
       if (u.ruolo === "admin") r.inAttesa = S.rows("utenti").filter(function (x) { return x.stato === "attesa"; }).length;
       return r;
     }
