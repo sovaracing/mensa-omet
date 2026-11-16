@@ -1,7 +1,5 @@
-/* Omet – Mensa · CONFIGURAZIONE
-   apiUrl: indirizzo della "app web" di Google Apps Script (finisce con /exec).
-   Lasciato vuoto, la app parte in MODALITÀ PROVA: dati solo su questo dispositivo, email simulate. */
+/* Omet – Mensa · CONFIGURAZIONE */
 window.MENSA_CONFIG = {
-  apiUrl: "",
-  appUrl: ""   // indirizzo pubblico della app (GitHub Pages), usato nei link delle email; vuoto = indirizzo attuale
+  apiUrl: "https://script.google.com/macros/s/AKfycbwTkFc7x-JiO3PdbpVbSFWWzmCgwpq_ZAa9iieC2VCc53GVq24VmVNHCxM7DvadA9pn/exec",
+  appUrl: "https://TUO-UTENTE.github.io/mensa-omet/"
 };
