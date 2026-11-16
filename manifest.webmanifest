@@ -1,0 +1,19 @@
+{
+  "name": "Mensa Omet",
+  "short_name": "Mensa Omet",
+  "description": "Prenotazione pasti della mensa aziendale Omet Foodtech",
+  "lang": "it",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#E9EDF2",
+  "theme_color": "#093E83",
+  "categories": ["food", "business", "productivity"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

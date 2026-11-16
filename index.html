@@ -1,0 +1,811 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Omet – Mensa</title>
+<meta name="description" content="Prenotazione pasti della mensa aziendale Omet Foodtech">
+<meta name="theme-color" content="#093E83">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Mensa Omet">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/favicon-64.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+
+<!-- OMET:COMMON START -->
+<style>
+/* Stile Omet unico v1.0 (claude/stile-omet-unico.md): token, font di sistema, componenti */
+:root{
+  --omet:#093E83; --omet-2:#1D5BB0; --omet-scuro:#082E60;
+  --ink:#1B2430; --mute:#5D6B7C; --line:#D7DEE8; --band:#EEF3F9; --bg:#E9EDF2; --paper:#FFFFFF;
+  --ok:#1E9E55; --ok-t:#1F7A3A; --ok-bg:#E5F4EA;
+  --warn:#F0B400; --warn-t:#C76A00; --warn-bg:#FFF3C4; --warn-b:#E0B400;
+  --bad:#D7262B; --bad-t:#C62828; --bad-bg:#FDE8E8;
+  --info:#3C8DDC; --info-t:#1D5BB0; --info-bg:#EEF3F9;
+  --neu:#AEB6C4; --neu-t:#6B7785; --neu-bg:#EEF0F3;
+  --flag:#6A3FB5; --flag-bg:#EFE8FB;
+  --f-ui:"Segoe UI",system-ui,-apple-system,Roboto,"Helvetica Neue",Arial,sans-serif;
+  --f-code:Consolas,ui-monospace,"SF Mono",Menlo,"Roboto Mono",monospace;
+  --r:8px;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-ui);font-size:15px;line-height:1.4}
+button{font:inherit}
+:focus-visible{outline:2px solid var(--omet);outline-offset:2px}
+.code{font-family:var(--f-code);font-weight:700;color:var(--omet)}
+.eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute);font-weight:600}
+.muted{color:var(--mute)}
+h1,h2,h3{margin:0;font-weight:600;text-wrap:balance}
+h2{font-size:20px} h3{font-size:16px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:36px;border:1px solid var(--line);background:var(--paper);color:var(--omet);border-radius:var(--r);padding:7px 14px;cursor:pointer;font-weight:600;text-decoration:none}
+.btn:hover{border-color:var(--omet-2)}
+.btn.primary{background:var(--omet);color:#fff;border-color:var(--omet)}
+.btn.primary:hover{background:var(--omet-scuro)}
+.btn.danger{color:var(--bad-t);border-color:var(--bad-t)}
+.btn.sm{min-height:28px;padding:4px 10px;font-size:13px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+input,select,textarea{font:inherit;color:var(--ink);background:var(--paper);border:1px solid var(--line);border-radius:var(--r);min-height:36px;padding:6px 10px;min-width:0}
+input:focus,select:focus,textarea:focus{border-color:var(--omet);outline:none}
+label.f{display:grid;gap:4px;font-size:13px;color:var(--mute)}
+label.chk{display:block;position:relative;padding-left:28px;font-size:14px;color:var(--ink);min-height:22px}
+label.chk input{position:absolute;left:0;top:1px;min-height:auto;margin:0;width:18px;height:18px;accent-color:var(--omet)}
+.badge{display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:2px 9px;font-size:12px;font-weight:600;white-space:nowrap;text-transform:uppercase;letter-spacing:.02em}
+.badge.ok{background:var(--ok-bg);color:var(--ok-t)} .badge.warn{background:var(--warn);color:#3a2a00} .badge.bad{background:var(--bad);color:#fff}
+.badge.info{background:var(--info-bg);color:var(--info-t)} .badge.neu{background:var(--neu-bg);color:var(--neu-t)} .badge.flag{background:var(--flag-bg);color:var(--flag)}
+.avviso{border-left:4px solid var(--info);background:var(--info-bg);padding:10px 12px;border-radius:var(--r);font-size:14px}
+.avviso.warn{border-color:var(--warn-b);background:var(--warn-bg)} .avviso.bad{border-color:var(--bad);background:var(--bad-bg)} .avviso.ok{border-color:var(--ok);background:var(--ok-bg)}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:#1B2430;color:#fff;padding:10px 16px;border-radius:var(--r);z-index:60;font-size:14px;max-width:92vw;box-shadow:0 4px 18px rgba(0,0,0,.25)}
+.toast button{margin-left:10px;background:none;border:1px solid rgba(255,255,255,.5);color:#fff;border-radius:6px;padding:2px 8px;cursor:pointer}
+table{border-collapse:collapse;font-size:14px;width:100%;font-variant-numeric:tabular-nums}
+th,td{border-bottom:1px solid var(--line);padding:7px 8px;text-align:left;white-space:nowrap}
+th{font-weight:600;color:var(--mute);font-size:12px;letter-spacing:.06em;text-transform:uppercase;background:var(--band);position:sticky;top:0}
+tr:hover td{background:var(--band)}
+.foot{font-size:12px;color:var(--mute);text-align:center;padding:18px 12px calc(18px + env(safe-area-inset-bottom,0px));display:flex;gap:6px 14px;justify-content:center;flex-wrap:wrap}
+.foot button{background:none;border:0;color:var(--omet);cursor:pointer;padding:0;font-size:12px;font-weight:600}
+/* guida */
+.guida .pills{display:flex;gap:6px;flex-wrap:wrap}
+.guida .pills button{border:1px solid var(--line);background:var(--paper);border-radius:999px;padding:5px 12px;cursor:pointer;color:var(--ink)}
+.guida .pills button[aria-pressed="true"]{background:var(--band);border-color:var(--omet);color:var(--omet);font-weight:600}
+.guida ol{list-style:none;padding:0;margin:0;display:grid;gap:10px;counter-reset:p}
+.guida li{display:grid;grid-template-columns:28px 1fr;gap:10px;counter-increment:p;font-size:14px}
+.guida li::before{content:counter(p);width:26px;height:26px;border-radius:50%;background:var(--omet);color:#fff;display:grid;place-items:center;font-weight:700;font-size:13px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+<!-- OMET:COMMON END -->
+
+<style>
+/* Layout della mensa (mobile prima di tutto): banda blu con logo, settimana a schede giorno, ordine in un pannello che sale dal basso */
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--omet)}
+.wrap{max-width:780px;margin:0 auto;padding-left:max(14px,env(safe-area-inset-left,0px));padding-right:max(14px,env(safe-area-inset-right,0px))}
+header.band{background:var(--omet);color:#fff;position:sticky;top:env(safe-area-inset-top,0px);z-index:5}
+header.band .wrap{display:flex;align-items:center;gap:10px;padding-block:10px;min-height:56px}
+header.band img{height:30px;width:auto;display:block}
+header.band .t{font-weight:600;letter-spacing:.12em;text-transform:uppercase;font-size:12px;opacity:.92;border-left:1px solid rgba(255,255,255,.35);padding-left:10px}
+header.band .who{margin-left:auto;display:flex;gap:6px;align-items:center}
+.hbtn{background:rgba(255,255,255,.14);color:#fff;border:0;border-radius:999px;padding:7px 12px;font-size:13px;cursor:pointer;display:inline-flex;gap:6px;align-items:center;white-space:nowrap;font-weight:600}
+.hbtn:hover{background:rgba(255,255,255,.26)}
+.hbtn .dot{background:var(--warn);color:#3a2a00;border-radius:999px;font-size:11px;padding:0 6px;font-weight:700}
+.demo{background:var(--warn-bg);border-bottom:1px solid var(--warn-b);font-size:13px}
+.demo .wrap{display:flex;gap:10px;align-items:center;padding-block:6px;flex-wrap:wrap}
+.offline{background:var(--neu-bg);font-size:13px;text-align:center;padding:5px}
+main{padding-block:16px 10px;display:grid;gap:16px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.box{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);padding:16px;display:grid;gap:14px;min-width:0}
+.box > .eyebrow:first-child{color:var(--omet)}
+.note{border:1px dashed var(--line);border-radius:var(--r);padding:10px 12px;font-size:13px;color:var(--mute);background:var(--paper)}
+.empty{padding:24px;text-align:center;color:var(--mute);border:1px dashed var(--line);border-radius:var(--r);background:var(--paper)}
+.err{color:var(--bad-t);font-size:14px;min-height:1.2em}
+/* accesso */
+.login{max-width:400px;width:100%;margin:12px auto;display:grid;gap:14px;background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:20px}
+.pin{display:flex;gap:8px;justify-content:center}
+.pin span{width:40px;height:50px;border:1px solid var(--line);border-radius:var(--r);display:grid;place-items:center;font-size:24px;font-family:var(--f-code)}
+.pin span.f{border-color:var(--omet);background:var(--band)}
+.pin span.x{opacity:.35;border-style:dashed}
+.pad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.pad button{padding:13px 0;font-size:21px;border-radius:var(--r);border:1px solid var(--line);background:var(--bg);color:var(--ink);cursor:pointer;font-family:var(--f-code);touch-action:manipulation}
+.pad button:active{background:var(--band)}
+.linkbtn{background:none;border:0;color:var(--omet);cursor:pointer;font-weight:600;padding:4px 0}
+/* settimana */
+.weekhead{display:flex;align-items:end;gap:10px;flex-wrap:wrap}
+.weekhead .nav{margin-left:auto;display:flex;gap:6px}
+.days{display:grid;gap:8px}
+.day{display:grid;grid-template-columns:56px 1fr auto;gap:12px;align-items:center;background:var(--paper);border:1px solid var(--line);border-radius:var(--r);padding:11px 12px;cursor:pointer;text-align:left;color:var(--ink);width:100%}
+.day:hover{border-color:var(--omet-2)}
+.day .d{display:grid;justify-items:center;line-height:1.05}
+.day .d b{font-size:24px;font-weight:600}
+.day .d small{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--mute)}
+.day .s{min-width:0;display:grid;gap:4px;justify-items:start}
+.day .s .sum{font-size:13px;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.day.today{box-shadow:inset 4px 0 0 var(--omet)}
+.day.past{opacity:.72}
+.chev{color:var(--mute);font-size:20px}
+/* pannello */
+.scrim{position:fixed;inset:0;background:rgba(8,20,40,.45);z-index:20;display:flex;align-items:flex-end;justify-content:center}
+.sheet{background:var(--paper);width:100%;max-width:640px;max-height:94%;overflow:auto;overscroll-behavior:contain;border-radius:14px 14px 0 0;padding:16px max(16px,env(safe-area-inset-left,0px)) calc(16px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-right,0px));display:grid;gap:16px;align-content:start}
+@media (min-width:700px){.scrim{align-items:center}.sheet{border-radius:12px;max-height:90%}}
+.sheet .top{display:flex;align-items:start;gap:10px}
+.sheet .top .x{margin-left:auto}
+.grp{display:grid;gap:8px}
+.grp .gh{display:flex;justify-content:space-between;align-items:baseline}
+.dishes{display:grid;gap:6px}
+.dish{display:grid;grid-template-columns:34px 1fr auto;gap:10px;align-items:center;padding:9px 10px;border:1px solid var(--line);border-radius:var(--r);background:var(--bg);cursor:pointer;text-align:left;color:var(--ink);width:100%;touch-action:manipulation}
+.dish .k{font-family:var(--f-code);font-weight:700;display:grid;place-items:center;width:30px;height:30px;border-radius:6px;background:var(--band);color:var(--omet)}
+.dish .n{min-width:0}
+.dish .a{font-size:12px;color:var(--mute);text-align:right}
+.dish .al{display:block;font-size:12px;color:var(--warn-t);font-weight:600}
+.dish[aria-pressed="true"]{border-color:var(--omet);background:var(--band)}
+.dish[aria-pressed="true"] .k{background:var(--omet);color:#fff}
+.dish:disabled{opacity:.5;cursor:not-allowed}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.seg button{border:0;background:var(--paper);color:var(--ink);padding:8px 14px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--omet);color:#fff}
+.actions{display:flex;gap:10px;flex-wrap:wrap;position:sticky;bottom:calc(-16px - env(safe-area-inset-bottom,0px));background:var(--paper);padding-block:10px calc(10px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line);margin-bottom:calc(-16px - env(safe-area-inset-bottom,0px))}
+.actions .btn.primary{flex:1;min-height:44px}
+/* gestione */
+.tabs{display:flex;gap:2px;overflow-x:auto;border-bottom:1px solid var(--line);scrollbar-width:none}
+.tabs button{border:0;background:none;color:var(--mute);padding:10px 12px;cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap;font-weight:600}
+.tabs button[aria-selected="true"]{color:var(--omet);border-color:var(--omet)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px}
+.tile{border:1px solid var(--line);border-top:4px solid var(--omet);border-radius:var(--r);padding:8px 10px;background:var(--paper)}
+.tile.warn{border-top-color:var(--warn)} .tile.bad{border-top-color:var(--bad)} .tile.ok{border-top-color:var(--ok)}
+.big{font-size:28px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.1}
+.tot{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px}
+.tot .c{border:1px solid var(--line);border-radius:var(--r);padding:10px;display:grid;gap:5px;align-content:start}
+.tot .c .l{display:flex;justify-content:space-between;font-size:14px;gap:8px}
+.tot .c .l span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tot .c .l.z{color:var(--neu)}
+.scroll{overflow:auto;max-height:70vh;border:1px solid var(--line);border-radius:var(--r)}
+td.x{text-align:center;font-family:var(--f-code);font-weight:700}
+pre.txt{background:var(--bg);border:1px solid var(--line);border-radius:var(--r);padding:12px;font-size:13px;white-space:pre-wrap;max-height:320px;overflow:auto;margin:0;font-family:var(--f-code)}
+.mgrid{display:grid;gap:6px}
+.mrow{display:grid;grid-template-columns:62px 44px 1fr 66px 36px 36px 30px;gap:5px;align-items:center}
+.mrow input,.mrow select{padding:4px 6px;font-size:14px;min-height:32px}
+.mrow input[type=checkbox]{min-height:auto;width:18px;height:18px;justify-self:center;accent-color:var(--omet)}
+.list{display:grid;gap:8px}
+.item{border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;display:grid;gap:8px;background:var(--paper)}
+.item .h{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.item .h b{margin-right:auto}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:14px}
+.kv dt{color:var(--mute)} .kv dd{margin:0}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+details.box summary{cursor:pointer;font-weight:600;color:var(--omet)}
+/* stampa: si stampa solo l'area #printarea */
+#printarea{display:none}
+@media print{
+  body{background:#fff}
+  body::before,header,.demo,.offline,main,.foot,#layer,.toast{display:none!important}
+  #printarea{display:block}
+}
+@media (max-width:640px){
+  .mrow{grid-template-columns:54px 40px 1fr 30px;}
+  .mrow .opt{display:none}
+  .hide-sm{display:none}
+  th,td{padding:6px 6px}
+}
+@media (pointer:coarse){input,select,textarea{font-size:16px}}
+@media (prefers-reduced-motion:no-preference){.sheet{animation:up .18s ease-out}@keyframes up{from{transform:translateY(24px);opacity:.6}}}
+</style>
+</head>
+<body>
+<header class="band"><div class="wrap">
+  <img alt="Omet Foodtech" src="icons/logo-bianco.png" width="75" height="30">
+  <span class="t">Mensa</span>
+  <div class="who" id="who"></div>
+</div></header>
+<div id="bars"></div>
+<div class="wrap"><main id="app"><div class="empty">Caricamento della mensa…</div></main></div>
+<div class="foot" id="foot"></div>
+<div id="layer"></div>
+<div id="printarea"></div>
+
+<script src="config.js"></script>
+<script src="js/core.js"></script>
+<script src="js/demo-env.js"></script>
+<script src="js/menu-pdf.js"></script>
+<script>
+"use strict";
+/* ===================== base ===================== */
+const TOOL = "Mensa", VERS = MensaCore.VERSIONE, VDATA = MensaCore.DATA_VERSIONE;
+const CFGAPP = window.MENSA_CONFIG || {};
+const DEMO = !CFGAPP.apiUrl;
+const U = MensaCore.util, CATS = MensaCore.CATS;
+const $ = s => document.querySelector(s);
+const esc = U.esc, it = U.it, pd = U.pd, iso = U.iso, cap = U.cap;
+const GIORNI = ["Dom","Lun","Mar","Mer","Gio","Ven","Sab"], GIORNI_L = ["Domenica","Lunedì","Martedì","Mercoledì","Giovedì","Venerdì","Sabato"];
+const ALLERGENI = {1:"Cereali con glutine",2:"Crostacei",3:"Uova",4:"Pesce",5:"Arachidi",6:"Soia",7:"Latte",8:"Frutta a guscio",9:"Sedano",10:"Senape",11:"Sesamo",12:"Solfiti",13:"Lupini",14:"Molluschi"};
+const LS = { get(k){try{return localStorage.getItem("omet.mensa."+k)}catch(e){return null}}, set(k,v){try{v==null?localStorage.removeItem("omet.mensa."+k):localStorage.setItem("omet.mensa."+k,v)}catch(e){}},
+  json(k,d){try{const v=localStorage.getItem("omet.mensa."+k);return v?JSON.parse(v):d}catch(e){return d}}, setJson(k,v){try{localStorage.setItem("omet.mensa."+k,JSON.stringify(v))}catch(e){}} };
+const oggi = () => iso(new Date());
+const tsIt = U.tsIt;
+function toast(t, ms, btn){const e=document.createElement("div");e.className="toast";e.setAttribute("role","status");e.textContent=t;
+  if(btn){const b=document.createElement("button");b.textContent=btn.t;b.onclick=()=>{btn.f();e.remove()};e.appendChild(b)}
+  document.body.appendChild(e);setTimeout(()=>e.remove(),ms||4500)}
+function appUrl(){return CFGAPP.appUrl || (location.origin + location.pathname.replace(/index\.html$/,""))}
+
+/* ===================== collegamento ai dati ===================== */
+let demoEnv=null, demoCore=null;
+function initDemo(){
+  const saved = LS.json("prova", null);
+  const data = saved || {};
+  demoEnv = MensaDemoEnv.makeEnv({ data, outbox: LS.json("prova.posta", []), appUrl: appUrl(),
+    onChange: d => LS.setJson("prova", d) });
+  const send = demoEnv.mail.send; demoEnv.mail.send = m => { send(m); LS.setJson("prova.posta", demoEnv.outbox.slice(-60)); };
+  demoCore = MensaCore.create(demoEnv);
+  if (!saved) seedDemo();
+}
+function seedDemo(){
+  const c=(a,p,t)=>demoCore.call(a,p,t);
+  c("registra",{username:"Admin prova",pin:"0000"});
+  const A=c("login",{username:"Admin prova",pin:"0000"}).token;
+  c("registra",{username:"Addetto prova",pin:"1111"}); c("registra",{username:"Utente prova",pin:"2222"}); c("registra",{username:"Nuovo collega",pin:"3333"});
+  const us=c("utenti",{},A).utenti;
+  c("gestisciUtente",{id:us.find(u=>u.username==="Addetto prova").id,azione:"approva",ruolo:"addetto"},A);
+  c("gestisciUtente",{id:us.find(u=>u.username==="Utente prova").id,azione:"approva",ruolo:"utente"},A);
+  if (self.DEMO_MENU) c("salvaMenu",{settimane:self.DEMO_MENU,origine:"MENU NOVEMBRE 2026.pdf (prova)"},A);
+  c("esci",{},A);
+  demoEnv.outbox.length=0; LS.setJson("prova.posta",[]);
+}
+async function api(action, params){
+  const token = LS.get("token");
+  if (DEMO) {
+    try { return JSON.parse(JSON.stringify(demoCore.call(action, params||{}, token))); }
+    catch(e){ if(e.code==="auth") sessionLost(); throw e; }
+  }
+  const ctl = new AbortController(); const tm = setTimeout(()=>ctl.abort(), 30000);
+  let res;
+  try {
+    res = await fetch(CFGAPP.apiUrl, { method:"POST", body: JSON.stringify({ action, params: params||{}, token }), signal: ctl.signal, redirect:"follow" });
+  } catch(e) { const x=new Error(navigator.onLine===false?"Sei offline: controlla la connessione.":"Server non raggiungibile. Riprova tra poco."); x.code="rete"; throw x; }
+  finally { clearTimeout(tm); }
+  let j; try { j = await res.json(); } catch(e){ const x=new Error("Risposta del server non valida."); x.code="rete"; throw x; }
+  if (!j.ok) { const x=new Error(j.error||"Errore"); x.code=j.code; if(j.code==="auth") sessionLost(); throw x; }
+  return j.data;
+}
+function sessionLost(){ LS.set("token",null); S.me=null; setTimeout(render,0); }
+
+/* ===================== stato ===================== */
+const S = { me:null, cfg:null, settimane:[], week:null, wdata:null, view:"week", tab:"riep", riepDay:null, inAttesa:0, offline:false, guidaTab:"ordinare", draft:null };
+
+async function boot(){
+  if (DEMO) { initDemo(); setInterval(()=>{ try{demoCore.tick()}catch(e){} }, 30000); try{demoCore.tick()}catch(e){} }
+  renderFoot(); renderBars();
+  if (LS.get("token")) await loadMe(); else render();
+}
+async function loadMe(){
+  try {
+    const r = await api("io");
+    S.me = r.io; S.cfg = r.cfg; S.settimane = r.settimane; S.inAttesa = r.inAttesa||0; S.offline=false;
+    LS.setJson("cache.io", r);
+    if (!S.week || !S.settimane.some(w=>w.lunedi===S.week)) S.week = pickWeek();
+    await loadWeek();
+  } catch(e) {
+    if (e.code==="rete") { const c=LS.json("cache.io",null); if(c){S.me=c.io;S.cfg=c.cfg;S.settimane=c.settimane;S.offline=true;if(!S.week)S.week=pickWeek();await loadWeek();return} }
+    if (e.code!=="auth") toast(e.message);
+  }
+  render();
+}
+function pickWeek(){ const t=oggi(); const w=S.settimane.find(w=>w.giorni.some(d=>d>=t)); return w ? w.lunedi : (S.settimane.length ? S.settimane[S.settimane.length-1].lunedi : U.lunedi(t)); }
+async function loadWeek(){
+  if (!S.week) return;
+  try { S.wdata = await api("settimana",{lunedi:S.week}); LS.setJson("cache.w."+S.week, {t:new Date().toISOString(), d:S.wdata}); S.offline=false; }
+  catch(e){ if(e.code==="rete"){ const c=LS.json("cache.w."+S.week,null); S.wdata=c?c.d:null; S.offline=true; S.offlineT=c?c.t:null; } else throw e; }
+  renderBars();
+}
+window.addEventListener("online",()=>{ if(S.me) loadMe(); });
+window.addEventListener("offline",()=>{ S.offline=true; renderBars(); });
+
+/* ===================== barre e piè di pagina ===================== */
+function renderBars(){
+  let h="";
+  if (DEMO) h+=`<div class="demo"><div class="wrap"><span class="badge warn">⚠ Prova</span><span style="flex:1;min-width:180px">Dati solo su questo dispositivo, email simulate. <b>Admin prova</b> 0000 · <b>Addetto prova</b> 1111 · <b>Utente prova</b> 2222</span><button class="btn sm" id="demoreset">Azzera prova</button></div></div>`;
+  if (S.offline) h+=`<div class="offline">— Sei offline: vedi i dati salvati${S.offlineT?" alle "+new Date(S.offlineT).toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}):""}. Per ordinare serve la connessione.</div>`;
+  $("#bars").innerHTML=h;
+  if ($("#demoreset")) $("#demoreset").onclick=()=>{ if(!confirm("Azzerare tutti i dati di prova su questo dispositivo?"))return; LS.set("prova",null);LS.set("prova.posta",null);LS.set("token",null);location.reload(); };
+}
+function renderFoot(){
+  $("#foot").innerHTML=`<span>Omet Foodtech · Mensa ${VERS} del ${VDATA}</span><button id="fg">? Guida</button><button id="fs">✉ Segnala un problema</button>`;
+  $("#fg").onclick=()=>openGuida(); $("#fs").onclick=segnala;
+}
+function segnala(){
+  const vista = S.view==="admin" ? "Gestione · "+S.tab : (S.me?"Settimana":"Accesso");
+  const n=new Date();
+  const body = `Tool: ${TOOL}\nVersione: ${VERS} del ${VDATA}\nVista attiva: ${vista}\nData: ${n.toLocaleString("it-IT")}\nUtente: ${S.me?S.me.username:"(non entrato)"}\nModalità: ${DEMO?"prova":"in linea"}\nDispositivo: ${navigator.userAgent}\n\nDescrivi il problema (cosa hai fatto, cosa ti aspettavi, cosa è successo):\n\n`;
+  location.href = "mailto:a.sovani@omet-foodtech.it?subject="+encodeURIComponent(`Segnalazione ${TOOL} ${VERS}`)+"&body="+encodeURIComponent(body);
+}
+
+/* ===================== rendering principale ===================== */
+function render(){
+  const who=$("#who");
+  if (S.me){
+    const add = S.me.ruolo!=="utente";
+    who.innerHTML=(add?`<button class="hbtn" id="hv">${S.view==="admin"?"Il mio ordine":"Gestione"}${S.inAttesa&&S.view!=="admin"?` <span class="dot">${S.inAttesa}</span>`:""}</button>`:"")+
+      `<button class="hbtn" id="hp" aria-label="Profilo">👤 <span class="hide-sm">${esc(S.me.username.split(" ")[0])}</span></button>`;
+    if($("#hv")) $("#hv").onclick=()=>{S.view=S.view==="admin"?"week":"admin";render();window.scrollTo(0,0)};
+    $("#hp").onclick=openProfilo;
+  } else who.innerHTML="";
+  const app=$("#app");
+  if (!S.me) { if(S.view==="registra") renderRegistra(app); else renderLogin(app); return; }
+  if (S.view==="admin" && S.me.ruolo!=="utente") renderAdmin(app); else renderWeek(app);
+}
+
+/* ===================== accesso ===================== */
+let pinBuf="";
+function renderLogin(app){
+  const last=LS.get("ultimoUtente")||"";
+  app.innerHTML=`<div class="login">
+    <div><div class="eyebrow">Prenotazione pasti</div><h2>Accedi</h2></div>
+    <label class="f">Nome utente<input id="lg-u" autocomplete="username" autocapitalize="off" value="${esc(last)}"></label>
+    <div class="f" style="font-size:13px;color:var(--mute)">PIN (da 4 a 6 cifre)</div>
+    <div class="pin" id="pinv" aria-live="polite"></div>
+    <div class="pad">${[1,2,3,4,5,6,7,8,9,"⌫",0,"OK"].map(k=>`<button data-k="${k}" aria-label="${k==="⌫"?"Cancella":k==="OK"?"Entra":k}" ${k==="OK"?'style="background:var(--omet);color:#fff;border-color:var(--omet);font-family:var(--f-ui);font-size:16px;font-weight:600"':""}>${k==="OK"?"Entra":k}</button>`).join("")}</div>
+    <div class="err" id="lg-err"></div>
+    <div class="row" style="justify-content:space-between"><button class="linkbtn" id="toreg">Non hai un accesso? Registrati</button><button class="linkbtn" id="forgot">PIN dimenticato?</button></div>
+  </div>
+  ${installCard()}`;
+  pinBuf=""; updPin();
+  app.querySelectorAll(".pad button").forEach(b=>b.onclick=()=>pinKey(b.dataset.k));
+  $("#toreg").onclick=()=>{S.view="registra";render()};
+  $("#forgot").onclick=()=>{$("#lg-err").textContent="Chiedi all'amministratore della mensa di reimpostarlo: ti darà un PIN provvisorio da cambiare nel profilo."};
+  bindInstall();
+  if(!last) setTimeout(()=>$("#lg-u")&&$("#lg-u").focus(),50);
+}
+function pinKey(k){ if(k==="⌫")pinBuf=pinBuf.slice(0,-1); else if(k==="OK"){tryLogin();return} else if(pinBuf.length<6)pinBuf+=k; updPin(); }
+document.addEventListener("keydown",e=>{ if(S.me||!$("#pinv"))return;
+  if(e.target.tagName==="INPUT"){ if(e.key==="Enter"){e.preventDefault();e.target.blur()} return; }
+  if(/^\d$/.test(e.key))pinKey(e.key); else if(e.key==="Backspace")pinKey("⌫"); else if(e.key==="Enter")pinKey("OK"); });
+function updPin(){const v=$("#pinv");if(v)v.innerHTML=[0,1,2,3,4,5].map(i=>`<span class="${i<pinBuf.length?"f":(i>=4?"x":"")}">${i<pinBuf.length?"•":""}</span>`).join("")}
+async function tryLogin(){
+  const u=$("#lg-u").value.trim(), err=$("#lg-err");
+  if(!u){err.textContent="Scrivi il tuo nome utente.";return}
+  if(pinBuf.length<4){err.textContent="Il PIN ha almeno 4 cifre.";return}
+  err.textContent="Accesso in corso…";
+  try{ const r=await api("login",{username:u,pin:pinBuf,dispositivo:navigator.userAgent.slice(0,80)}); LS.set("token",r.token); LS.set("ultimoUtente",r.io.username); S.view="week"; await loadMe(); }
+  catch(e){ err.textContent=e.message; pinBuf=""; updPin(); }
+}
+function renderRegistra(app){
+  app.innerHTML=`<div class="login">
+    <div><div class="eyebrow">Nuovo accesso</div><h2>Registrati</h2></div>
+    <div class="avviso">i&nbsp; Fase di prova: scegli un <b>nome utente nuovo</b>. L'amministratore deve approvarlo prima del primo accesso.</div>
+    <label class="f">Nome utente<input id="rg-u" autocapitalize="words" maxlength="30" autocomplete="username"></label>
+    <div class="grid2"><label class="f">PIN (4–6 cifre)<input id="rg-p" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password"></label>
+    <label class="f">Ripeti il PIN<input id="rg-p2" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password"></label></div>
+    <label class="f">Email aziendale (facoltativa)<input id="rg-e" type="email" autocomplete="email" placeholder="nome@omet-foodtech.it"></label>
+    <label class="chk"><input type="checkbox" id="rg-m"> Voglio ricevere ogni mattina il menu del giorno via email</label>
+    <div class="err" id="rg-err"></div>
+    <div class="row"><button class="btn" id="rg-back">Indietro</button><button class="btn primary" id="rg-ok" style="flex:1">Registrati</button></div>
+  </div>`;
+  $("#rg-back").onclick=()=>{S.view="week";render()};
+  $("#rg-ok").onclick=async()=>{
+    const p={username:$("#rg-u").value,pin:$("#rg-p").value,email:$("#rg-e").value,mailMenu:$("#rg-m").checked}, er=$("#rg-err");
+    if(p.pin!==$("#rg-p2").value){er.textContent="I due PIN non coincidono.";return}
+    er.textContent="Invio…";
+    try{ const r=await api("registra",p); LS.set("ultimoUtente",p.username.trim());
+      app.innerHTML=`<div class="login"><h2>${r.stato==="attivo"?"Registrazione completata":"Richiesta inviata"}</h2>
+        <div class="avviso ${r.stato==="attivo"?"ok":""}">${r.primo?"✓ OK&nbsp; Sei il primo utente: sei amministratore della mensa.":r.stato==="attivo"?"✓ OK&nbsp; Puoi entrare subito.":"i&nbsp; La tua registrazione è in attesa di approvazione. Riceverai una email (se l'hai indicata) quando sarà approvata."}</div>
+        <button class="btn primary" id="rg-go">Vai all'accesso</button></div>`;
+      $("#rg-go").onclick=()=>{S.view="week";render()};
+    }catch(e){ er.textContent=e.message; }
+  };
+}
+
+/* ===================== installazione come app ===================== */
+let deferredPrompt=null;
+window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();deferredPrompt=e;document.querySelectorAll("[data-install]").forEach(b=>b.hidden=false)});
+window.addEventListener("appinstalled",()=>{deferredPrompt=null;toast("App installata ✓")});
+const standalone=()=>window.matchMedia("(display-mode: standalone)").matches||navigator.standalone===true;
+const isIOS=()=>/iphone|ipad|ipod/i.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
+function installCard(){
+  if(standalone()||LS.get("noInstall"))return"";
+  return `<div class="note" id="instcard" style="max-width:400px;width:100%;margin:0 auto;display:grid;gap:8px"><b style="color:var(--omet)">📲 Mettila sul telefono come una app</b>
+    ${isIOS()?`<span>Su iPhone/iPad: apri questa pagina con <b>Safari</b>, tocca <b>Condividi</b> ⬆︎ e poi <b>Aggiungi alla schermata Home</b>.</span>`:`<span>Su Android e PC: tocca <b>Installa</b> qui sotto, oppure dal menu del browser ⋮ scegli <b>Installa app</b> / <b>Aggiungi a schermata Home</b>.</span>`}
+    <div class="row">${isIOS()?"":`<button class="btn primary sm" data-install ${deferredPrompt?"":"hidden"}>Installa</button>`}<button class="btn sm" id="noinst">Non ora</button></div></div>`;
+}
+function bindInstall(){
+  document.querySelectorAll("[data-install]").forEach(b=>b.onclick=async()=>{ if(!deferredPrompt){openGuida("installare");return} deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt=null; });
+  if($("#noinst")) $("#noinst").onclick=()=>{LS.set("noInstall","1");$("#instcard").remove()};
+}
+
+/* ===================== settimana ===================== */
+function riassunto(o,g){ return (o.scelte||[]).map(c=>{const p=g.piatti.find(x=>x.c===c);return p?cap(p.n):c}).join(" · ")+(o.acqua?` · acqua ${o.acqua==="N"?"naturale":"gassata"}`:"") }
+function weekNav(){const ks=S.settimane.map(w=>w.lunedi);const i=ks.indexOf(S.week);return{prev:ks[i-1],next:ks[i+1]}}
+function chiusuraTxt(ch){ return ch.date===null?"": (S.cfg.cutoffGiorno==="prima"?`entro le ${ch.time} del giorno prima`:`entro le ${ch.time} del giorno stesso`) }
+function renderWeek(app){
+  const m=S.wdata; const me=S.me;
+  if(!S.settimane.length){app.innerHTML=`<div class="empty">Il menu non è ancora stato caricato.${me.ruolo!=="utente"?"<br><br>Caricalo da Gestione → Menu.":""}</div>${installCard()}`;bindInstall();return}
+  if(!m){app.innerHTML=`<div class="empty">Settimana non disponibile${S.offline?" offline":""}.</div>`;return}
+  const nav=weekNav(); const today=oggi();
+  const g0=m.giorni[0], g1=m.giorni[m.giorni.length-1];
+  app.innerHTML=`${S.me.ruolo==="admin"&&S.inAttesa?`<div class="avviso warn">⚠ ATTENZIONE&nbsp; ${S.inAttesa} ${S.inAttesa===1?"registrazione":"registrazioni"} da approvare. <button class="linkbtn" id="goappr">Apri Utenti</button></div>`:""}
+   <section style="display:grid;gap:4px"><div class="eyebrow">Ciao ${esc(me.username.split(" ")[0])}</div>
+   <div class="weekhead"><h2>${m.settimana?"Settimana "+esc(m.settimana)+" · ":""}${g0?it(g0.data).slice(0,5)+"–"+it(g1.data).slice(0,5):""}</h2>
+   <div class="nav"><button class="btn sm" id="wp" ${nav.prev?"":"disabled"} aria-label="Settimana precedente">‹</button><button class="btn sm" id="wn" ${nav.next?"":"disabled"} aria-label="Settimana successiva">›</button></div></div>
+   <div class="muted" style="font-size:13px">Ordini, variazioni e annullamenti ${chiusuraTxt({time:S.cfg.cutoff})}. Tocca un giorno per scegliere.</div></section>
+   <div class="days">${m.giorni.map(g=>{const o=g.ordine;const d=pd(g.data);const cl=g.chiuso;
+     let pill,sum="";
+     if(o&&o.stato==="ok"){pill=`<span class="badge ok">✓ Prenotato</span>`;sum=riassunto(o,g)}
+     else if(o&&o.stato==="annullato"){pill=`<span class="badge ${o.tardivo?"bad":"neu"}">${o.tardivo?"✗ Annullato in ritardo":"— Annullato"}</span>`;sum="Nessun pasto"}
+     else if(cl){pill='<span class="badge neu">— Chiuso</span>';sum="Nessun pasto"}
+     else{pill='<span class="badge info">i Da scegliere</span>';sum="Entro le "+g.chiude.time+(S.cfg.cutoffGiorno==="prima"?" del giorno prima":"")}
+     return `<button class="day ${g.data===today?"today":""} ${g.data<today?"past":""}" data-day="${g.data}"><span class="d"><small>${GIORNI[d.getDay()]}</small><b>${String(d.getDate()).padStart(2,"0")}</b></span><span class="s">${pill}<span class="sum">${esc(sum)}</span></span><span class="chev">›</span></button>`}).join("")}</div>
+   <div class="note">P = piatto con panna · ** = contiene maiale · tra parentesi i numeri degli allergeni (<button class="linkbtn" id="leg" style="font-size:13px;padding:0">legenda</button>).${(m.note||[]).length?"<br>"+m.note.map(esc).join(" · "):""}</div>
+   ${installCard()}`;
+  if(nav.prev)$("#wp").onclick=async()=>{S.week=nav.prev;await loadWeek();render()};
+  if(nav.next)$("#wn").onclick=async()=>{S.week=nav.next;await loadWeek();render()};
+  if($("#goappr"))$("#goappr").onclick=()=>{S.view="admin";S.tab="utenti";render()};
+  $("#leg").onclick=openLegenda;
+  app.querySelectorAll(".day").forEach(b=>b.onclick=()=>openDay(m.giorni.find(g=>g.data===b.dataset.day)));
+  bindInstall();
+}
+
+/* ===================== pannelli ===================== */
+function sheet(html, onClose){
+  const L=$("#layer");
+  L.innerHTML=`<div class="scrim" id="scrim"><div class="sheet" role="dialog" aria-modal="true">${html}</div></div>`;
+  const close=()=>{L.innerHTML="";document.removeEventListener("keydown",onKey);document.body.style.overflow="";if(onClose)onClose()};
+  const onKey=e=>{if(e.key==="Escape")close()};
+  document.addEventListener("keydown",onKey); document.body.style.overflow="hidden";
+  $("#scrim").onclick=e=>{if(e.target.id==="scrim")close()};
+  L.querySelectorAll("[data-close]").forEach(b=>b.onclick=close);
+  return {close, root:L.querySelector(".sheet")};
+}
+function openLegenda(){
+  sheet(`<div class="top"><div><div class="eyebrow">Menu</div><h2>Legenda allergeni</h2></div><button class="btn sm x" data-close aria-label="Chiudi">✕</button></div>
+   <div class="muted" style="font-size:13px">Numerazione degli allergeni del Reg. UE 1169/2011, usata nel menu della mensa. In caso di dubbio chiedi sempre alla mensa.</div>
+   <div class="kv">${Object.entries(ALLERGENI).map(([k,v])=>`<dt class="code">${k}</dt><dd>${v}</dd>`).join("")}</div>
+   <div class="kv"><dt class="code">P</dt><dd>Piatto con panna</dd><dt class="code">**</dt><dd>Contiene maiale</dd></div>`);
+}
+function allergeniMiei(){return LS.json("allergeni",[])}
+function avvisoAll(x){const mine=allergeniMiei();if(!mine.length)return"";const has=String(x.all||"").split("-").map(Number).filter(n=>mine.includes(n));
+  const extra=[];if(mine.includes("P")&&x.panna)extra.push("panna");if(mine.includes("M")&&x.maiale)extra.push("maiale");
+  const l=has.map(n=>n+" "+ALLERGENI[n]).concat(extra);return l.length?`<span class="al">⚠ contiene ${esc(l.join(", "))}</span>`:""}
+
+/* ---- ordine del giorno (utente o addetto per conto) ---- */
+function openDay(g, perConto){
+  // perConto: {uid, username, ospite, ordine} quando l'addetto ordina per un altro
+  const ex = perConto ? perConto.ordine : g.ordine;
+  let sel=new Set(ex&&ex.stato==="ok"?ex.scelte:[]), acqua=ex&&ex.stato==="ok"?ex.acqua||"":"", nota=ex&&ex.stato==="ok"?ex.nota||"":"";
+  const addetto=S.me.ruolo!=="utente";
+  const cl=g.chiuso, canEdit=!S.offline&&(!cl||addetto);
+  const L=S.cfg.limiti;
+  let sh;
+  const draw=()=>{
+    const cnt=c=>[...sel].filter(k=>g.piatti.find(x=>x.c===k)?.cat===c).length;
+    const d=pd(g.data);
+    const html=`<div class="top"><div><div class="eyebrow">${perConto?(perConto.ospite&&!perConto.uid?"Nuovo ospite":"Ordine per "+esc(perConto.username)):"Il tuo pasto"}</div><h2>${GIORNI_L[d.getDay()]} ${it(g.data)}</h2>
+       <div style="margin-top:6px">${cl?`<span class="badge ${addetto?"warn":"neu"}">${addetto?"⚠ Chiuso alle "+esc(g.chiude.time)+" · modifica da addetto":"— Chiuso alle "+esc(g.chiude.time)}</span>`:`<span class="badge ok">✓ Aperto fino alle ${esc(g.chiude.time)}${g.chiude.date!==g.data?" del "+it(g.chiude.date).slice(0,5):""}</span>`}</div></div>
+       <button class="btn sm x" data-close aria-label="Chiudi">✕</button></div>
+     ${perConto&&perConto.ospite&&!perConto.uid?`<label class="f">Nome dell'ospite<input id="ospnome" maxlength="40" placeholder="es. Cliente Rossi"></label>`:""}
+     ${!perConto&&canEdit&&!sel.size?`<div><button class="btn sm" id="last">↺ Come l'ultima volta</button></div>`:""}
+     ${CATS.map(([c,lab])=>{const lim=+L[c];const items=g.piatti.filter(x=>x.cat===c);if(!items.length)return"";const full=!perConto&&cnt(c)>=lim;
+       return `<div class="grp"><div class="gh"><h3>${lab}</h3><span class="muted" style="font-size:13px">${perConto?cnt(c)+" scelti":lim===0?"Non previsto":`${cnt(c)} di ${lim}`}</span></div><div class="dishes">${items.map(x=>{const on=sel.has(x.c);
+         return `<button class="dish" data-c="${esc(x.c)}" aria-pressed="${on}" ${(!canEdit||(!on&&(full||(!perConto&&lim===0))))?"disabled":""}><span class="k">${esc(x.c)}</span><span class="n">${esc(cap(x.n))}${x.panna?" <b title='con panna'>P</b>":""}${x.maiale?" <b title='contiene maiale'>**</b>":""}${avvisoAll(x)}</span><span class="a">${x.all?esc(x.all):""}</span></button>`}).join("")}</div></div>`}).join("")}
+     ${S.cfg.acqua?`<div class="grp"><h3>Acqua</h3><div class="seg">${[["","Nessuna"],["N","Naturale"],["G","Gassata"]].map(([v,t])=>`<button data-a="${v}" aria-pressed="${acqua===v}" ${canEdit?"":"disabled"}>${t}</button>`).join("")}</div></div>`:""}
+     <label class="f">Nota per la mensa (facoltativa)<input id="nota" maxlength="120" value="${esc(nota)}" ${canEdit?"":"disabled"} placeholder="es. senza sale, porzione piccola"></label>
+     ${ex?`<div class="muted" style="font-size:13px">Ultima modifica ${tsIt(ex.modificato)}${ex.inseritoDa?" · inserito da "+esc(ex.inseritoDa):""}${ex.stato==="annullato"?" · annullato":""}</div>`:""}
+     ${S.offline?`<div class="avviso warn">⚠ Sei offline: per ordinare serve la connessione.</div>`:""}
+     ${cl&&!addetto?`<div class="avviso">${S.cfg.annullaTardivo&&ex&&ex.stato==="ok"?"i&nbsp; Ordini chiusi. Puoi ancora annullare, ma l'annullamento viene segnalato come in ritardo agli addetti.":"i&nbsp; Ordini chiusi per questo giorno. Per urgenze rivolgiti agli addetti mensa."}</div>`:""}
+     <div class="actions">
+       ${ex&&ex.stato==="ok"&&!S.offline&&(addetto||!cl||S.cfg.annullaTardivo)?`<button class="btn danger" id="ann">${cl&&!addetto?"Annulla (in ritardo)":"Annulla pasto"}</button>`:""}
+       <button class="btn primary" id="ok" ${canEdit&&sel.size?"":"disabled"}>${ex&&ex.stato==="ok"?"Salva modifiche":"Prenota"}</button>
+     </div>`;
+    if(!sh) sh=sheet(html); else { sh.root.innerHTML=html; sh.root.querySelectorAll("[data-close]").forEach(b=>b.onclick=sh.close); }
+    const R=sh.root;
+    R.querySelectorAll(".dish").forEach(b=>b.onclick=()=>{const c=b.dataset.c;sel.has(c)?sel.delete(c):sel.add(c);nota=$("#nota").value;const osp=$("#ospnome")?$("#ospnome").value:"";draw();if($("#ospnome"))$("#ospnome").value=osp});
+    R.querySelectorAll(".seg button").forEach(b=>b.onclick=()=>{acqua=b.dataset.a;nota=$("#nota").value;const osp=$("#ospnome")?$("#ospnome").value:"";draw();if($("#ospnome"))$("#ospnome").value=osp});
+    if($("#last"))$("#last").onclick=async()=>{try{const r=await api("ultimoOrdine",{data:g.data});if(!r.ordine){toast("Nessun ordine precedente");return}
+      let n=0;r.ordine.scelte.forEach(c=>{const old=r.piatti.find(x=>x.c===c),now=g.piatti.find(x=>x.c===c);if(old&&now&&old.n===now.n){sel.add(c);n++}});
+      acqua=r.ordine.acqua||"";draw();toast(n?`Ripresi ${n} piatti uguali a ${it(r.ordine.data)}`:"Oggi i piatti sono diversi: scegli tu")}catch(e){toast(e.message)}};
+    if($("#ok"))$("#ok").onclick=save;
+    if($("#ann"))$("#ann").onclick=confirmCancel;
+  };
+  async function save(){
+    const b=$("#ok");b.disabled=true;b.textContent="Salvataggio…";
+    const p={data:g.data,scelte:[...sel],acqua,nota:$("#nota").value};
+    if(perConto){ if(perConto.uid)p.uid=perConto.uid; if(perConto.ospite){p.ospite=true;p.nomeOspite=$("#ospnome")?$("#ospnome").value:perConto.username} }
+    try{const r=await api("salvaOrdine",p);toast(r.invariato?"Nessuna modifica":(cl?"Salvato (fuori orario)":"Prenotazione salvata ✓"));sh.close();await afterChange()}
+    catch(e){toast(e.message);b.disabled=false;b.textContent="Riprova"}
+  }
+  function confirmCancel(){
+    const a=sh.root.querySelector(".actions");
+    a.innerHTML=`<span style="flex:1;font-size:14px">${cl?"Orario limite superato: l'annullamento verrà segnalato come in ritardo.":"Confermi l'annullamento del pasto?"}</span><button class="btn" id="no">No</button><button class="btn danger" id="si">Sì, annulla</button>`;
+    $("#no").onclick=draw;
+    $("#si").onclick=async()=>{try{await api("annullaOrdine",{data:g.data,uid:perConto?perConto.uid:undefined});toast(cl?"Annullato (segnalato in ritardo)":"Pasto annullato");sh.close();await afterChange()}catch(e){toast(e.message)}};
+  }
+  draw();
+}
+async function afterChange(){ if(S.view==="admin"){ renderAdmin($("#app")); } else { await loadWeek(); render(); } }
+
+/* ---- profilo ---- */
+function openProfilo(){
+  const me=S.me, all=allergeniMiei();
+  const sh=sheet(`<div class="top"><div><div class="eyebrow">Profilo · ${esc(me.ruolo)}</div><h2>${esc(me.username)}</h2></div><button class="btn sm x" data-close aria-label="Chiudi">✕</button></div>
+    <div class="grp"><h3>Email</h3>
+      <label class="f">Email (facoltativa)<input id="pe" type="email" value="${esc(me.email)}" placeholder="nome@omet-foodtech.it"></label>
+      <label class="chk"><input type="checkbox" id="pm" ${me.mailMenu?"checked":""}> Ricevi ogni mattina il menu del giorno (e se hai già ordinato)</label>
+      ${me.ruolo!=="utente"?`<label class="chk"><input type="checkbox" id="pn" ${me.notifiche?"checked":""}> Ricevi le email di variazioni, annullamenti e riepilogo (addetti)</label>`:""}
+    </div>
+    <div class="grp"><h3>Cambia PIN</h3><div class="grid2"><label class="f">PIN attuale<input id="p0" type="password" inputmode="numeric" maxlength="6"></label><label class="f">Nuovo PIN (4–6 cifre)<input id="p1" type="password" inputmode="numeric" maxlength="6"></label></div></div>
+    <div class="row"><button class="btn primary" id="psave">Salva profilo</button></div>
+    <div class="grp"><h3>I miei allergeni</h3><div class="muted" style="font-size:13px">Restano solo su questo dispositivo: servono a evidenziare i piatti da evitare. Non vengono inviati a nessuno.</div>
+      <div class="row" style="gap:6px">${Object.entries(ALLERGENI).map(([k,v])=>`<label class="chk" style="font-size:13px;border:1px solid var(--line);border-radius:999px;padding:3px 10px 3px 6px"><input type="checkbox" data-al="${k}" ${all.includes(+k)?"checked":""}>${k} ${v}</label>`).join("")}
+      <label class="chk" style="font-size:13px;border:1px solid var(--line);border-radius:999px;padding:3px 10px 3px 6px"><input type="checkbox" data-al="P" ${all.includes("P")?"checked":""}>Panna</label>
+      <label class="chk" style="font-size:13px;border:1px solid var(--line);border-radius:999px;padding:3px 10px 3px 6px"><input type="checkbox" data-al="M" ${all.includes("M")?"checked":""}>Maiale</label></div></div>
+    <div class="row">${!standalone()?`<button class="btn" id="pinst">📲 Installa come app</button>`:""}<button class="btn" id="pg">? Guida</button><button class="btn" id="ps">✉ Segnala un problema</button><button class="btn danger" id="pout" style="margin-left:auto">Esci</button></div>`);
+  sh.root.querySelectorAll("[data-al]").forEach(c=>c.onchange=()=>{const v=[...sh.root.querySelectorAll("[data-al]:checked")].map(x=>/^\d+$/.test(x.dataset.al)?+x.dataset.al:x.dataset.al);LS.setJson("allergeni",v)});
+  $("#psave").onclick=async()=>{const p={email:$("#pe").value,mailMenu:$("#pm").checked};if($("#pn"))p.notifiche=$("#pn").checked;
+    if($("#p1").value){p.vecchioPin=$("#p0").value;p.nuovoPin=$("#p1").value}
+    try{const r=await api("profilo",p);S.me=r.io;toast("Profilo salvato ✓");sh.close()}catch(e){toast(e.message)}};
+  if($("#pinst"))$("#pinst").onclick=async()=>{if(deferredPrompt){deferredPrompt.prompt();await deferredPrompt.userChoice;deferredPrompt=null}else{sh.close();openGuida("installare")}};
+  $("#pg").onclick=()=>{sh.close();openGuida()}; $("#ps").onclick=segnala;
+  $("#pout").onclick=async()=>{try{await api("esci")}catch(e){} LS.set("token",null);S.me=null;S.view="week";sh.close();render()};
+}
+
+/* ---- guida ---- */
+const GUIDA={
+  ordinare:["Entra con il tuo <b>nome utente</b> e il <b>PIN</b>. Il telefono ricorda il nome: la volta dopo basta il PIN, e l'accesso resta attivo per mesi.",
+    "Nella settimana tocca il <b>giorno</b>: scegli i piatti (i limiti per categoria sono scritti accanto al titolo) e l'acqua, poi <b>Prenota</b>.",
+    "Puoi cambiare o annullare <b>fino all'orario limite</b> (in alto nella pagina). Le variazioni arrivano per email agli addetti mensa.",
+    "Dopo l'orario gli ordini sono chiusi. Se l'impostazione lo permette puoi ancora annullare: viene segnalato <b>in ritardo</b> e conta nel report mensile.",
+    "<b>Come l'ultima volta</b> riprende i piatti dell'ultimo ordine che oggi hanno lo stesso nome.",
+    "Nel <b>profilo</b> (👤) puoi: mettere l'email e chiedere il menu del giorno ogni mattina, cambiare il PIN, segnare i tuoi allergeni (restano solo sul telefono)."],
+  installare:["<b>Android (Chrome)</b>: apri la pagina, tocca <b>Installa</b> nel riquadro o dal menu ⋮ → <b>Installa app</b>. Compare l'icona Mensa Omet.",
+    "<b>iPhone / iPad</b>: apri la pagina con <b>Safari</b>, tocca <b>Condividi</b> ⬆︎ → <b>Aggiungi alla schermata Home</b> → Aggiungi.",
+    "<b>PC (Edge o Chrome)</b>: icona di installazione nella barra dell'indirizzo, oppure menu → <b>Installa Mensa Omet</b>.",
+    "L'app si apre a schermo intero e si aggiorna da sola. Senza rete mostra l'ultima settimana vista; per ordinare serve la connessione."],
+  addetti:["<b>Gestione → Riepilogo</b>: scegli il giorno; vedi totali per piatto, acqua, foglio nominativo, annullamenti e variazioni.",
+    "<b>PDF del giorno</b>: apre la stampa; scegli <b>Salva come PDF</b>. In basso ci sono data e ora di stampa e chi l'ha generato.",
+    "<b>Copia per WhatsApp</b> / <b>Invia su WhatsApp</b>: testo pronto per la mensa. Ogni invio viene registrato (chi e quando).",
+    "All'orario limite parte da sola una <b>email agli addetti</b> con il PDF in allegato e il testo WhatsApp; il PDF va anche nell'archivio su Drive.",
+    "Puoi inserire o correggere un ordine <b>per un collega</b> o per un <b>ospite</b> anche dopo l'orario: resta segnato chi l'ha inserito.",
+    "<b>Archivio</b>: settimana per settimana, chi ha inviato cosa e quando; PDF e CSV della settimana.",
+    "<b>Menu</b>: carica il PDF del mese che manda la mensa; controlla, correggi se serve e salva."],
+  admin:["<b>Utenti</b>: approva le nuove registrazioni e scegli il ruolo (utente, addetto, amministratore). Il primo utente registrato diventa amministratore.",
+    "<b>Reimposta PIN</b> dà un PIN provvisorio da comunicare alla persona; tutti i suoi accessi vengono chiusi.",
+    "<b>Impostazioni</b>: orario limite, piatti massimi per categoria, annullamento tardivo, email automatiche, caselle extra per le notifiche e per l'amministrazione.",
+    "<b>Report</b>: per mese, pasti e annullamenti per persona (ordinati da chi annulla di più), con CSV per Excel. Il giorno 1 parte da solo all'amministrazione, se impostato.",
+    "Tutti i dati stanno nel Foglio Google della mensa: lo puoi aprire e scaricare quando vuoi."]
+};
+function openGuida(tab){
+  if(tab)S.guidaTab=tab;
+  const sh=sheet(`<div class="top"><div><div class="eyebrow">Guida</div><h2>Mensa Omet</h2></div><button class="btn sm x" data-close aria-label="Chiudi">✕</button></div>
+    <div class="guida" style="display:grid;gap:14px"><div class="pills">${[["ordinare","Ordinare"],["installare","Installare l'app"],["addetti","Addetti mensa"],["admin","Amministratore"]].map(([k,t])=>`<button data-g="${k}" aria-pressed="${S.guidaTab===k}">${t}</button>`).join("")}</div>
+    <ol>${GUIDA[S.guidaTab].map(t=>`<li><span>${t}</span></li>`).join("")}</ol></div>`);
+  sh.root.querySelectorAll("[data-g]").forEach(b=>b.onclick=()=>{sh.close();openGuida(b.dataset.g)});
+}
+
+/* ===================== gestione ===================== */
+function tabsFor(){const t=[["riep","Riepilogo"],["arch","Archivio"],["menu","Menu"]];if(S.me.ruolo==="admin")t.push(["utenti","Utenti"],["imp","Impostazioni"],["rep","Report"]);return t}
+function renderAdmin(app){
+  const T=tabsFor(); if(!T.some(t=>t[0]===S.tab))S.tab="riep";
+  app.innerHTML=`<section style="display:grid;gap:4px"><div class="eyebrow">Gestione mensa</div><h2>${S.me.ruolo==="admin"?"Amministratore":"Addetto mensa"}</h2></section>
+   <nav class="tabs" role="tablist">${T.map(([k,t])=>`<button role="tab" data-t="${k}" aria-selected="${S.tab===k}">${t}${k==="utenti"&&S.inAttesa?` <span class="badge warn">${S.inAttesa}</span>`:""}</button>`).join("")}</nav>
+   <div id="tabc" style="display:grid;gap:14px"><div class="empty">Caricamento…</div></div>`;
+  app.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>{S.tab=b.dataset.t;renderAdmin(app)});
+  const c=$("#tabc");
+  ({riep:tRiep,arch:tArch,menu:tMenu,utenti:tUtenti,imp:tImp,rep:tRep})[S.tab](c).catch(e=>{c.innerHTML=`<div class="avviso bad">✗ ERRORE&nbsp; ${esc(e.message)}</div>`});
+}
+const MODI={auto:"email automatica agli addetti",app:"PDF",whatsapp:"WhatsApp",copia:"testo copiato"};
+const descInvio=i=>(i.da==="automatico"?"":esc(i.da)+" · ")+esc(MODI[i.modo]||i.modo)+" · "+i.pasti+(i.pasti===1?" pasto":" pasti")+(i.file?` · <a href="${esc(i.file)}" target="_blank" rel="noopener">PDF su Drive</a>`:"");
+const tuttiGiorni=()=>S.settimane.flatMap(w=>w.giorni);
+
+/* ---- riepilogo del giorno ---- */
+async function tRiep(c){
+  const days=tuttiGiorni(); const t=oggi();
+  if(!days.length){c.innerHTML='<div class="empty">Carica prima un menu (scheda Menu).</div>';return}
+  if(!S.riepDay||!days.includes(S.riepDay))S.riepDay=days.find(d=>d>=t)||days[days.length-1];
+  const day=S.riepDay; const r=await api("riepilogo",{data:day});
+  const codes=r.piatti.map(x=>x.c);
+  const g={data:day,piatti:r.piatti,chiuso:r.chiuso,chiude:r.chiude};
+  c.innerHTML=`<div class="box">
+   <div class="row"><label class="f" style="flex:1;min-width:200px">Giorno<select id="rd">${days.map(d=>`<option value="${d}" ${d===day?"selected":""}>${GIORNI_L[pd(d).getDay()]} ${it(d)}</option>`).join("")}</select></label>
+     <span class="badge ${r.chiuso?"neu":"ok"}" style="align-self:end;margin-bottom:8px">${r.chiuso?"— Ordini chiusi":"✓ Aperto fino alle "+esc(r.chiude.time)}</span></div>
+   <div class="tiles"><div class="tile"><div class="eyebrow">Pasti</div><div class="big">${r.ok.length}</div></div>
+     ${r.ospiti?`<div class="tile"><div class="eyebrow">Di cui ospiti</div><div class="big">${r.ospiti}</div></div>`:""}
+     ${S.cfg.acqua?`<div class="tile"><div class="eyebrow">Acqua N / G</div><div class="big">${r.acqua.N} / ${r.acqua.G}</div></div>`:""}
+     <div class="tile ${r.annullati.some(o=>o.tardivo)?"bad":""}"><div class="eyebrow">Annullati</div><div class="big">${r.annullati.length}</div></div>
+     <div class="tile ${r.invii.length?"ok":"warn"}"><div class="eyebrow">Inviato</div><div style="font-size:14px;font-weight:600;margin-top:4px">${r.invii.length?"✓ "+esc(tsIt(r.invii[0].ts).slice(11))+"<br><span class='muted' style='font-weight:400'>"+esc(r.invii[0].da==="automatico"?"email automatica":r.invii[0].da)+"</span>":"⚠ non ancora"}</div></div></div>
+   <div class="tot">${CATS.map(([k,lab])=>`<div class="c"><div class="eyebrow">${lab}</div>${r.piatti.filter(x=>x.cat===k).map(x=>`<div class="l ${r.conteggi[x.c]?"":"z"}"><span><span class="code">${esc(x.c)}</span> ${esc(cap(x.n))}</span><b>${r.conteggi[x.c]||"–"}</b></div>`).join("")}</div>`).join("")}</div>
+   <div class="row"><button class="btn primary" id="pdf">⎙ PDF del giorno</button><button class="btn" id="cpw">Copia per WhatsApp</button><a class="btn" id="wa" href="#" target="_blank" rel="noopener">🟢 Invia su WhatsApp</a></div>
+   ${r.invii.length?`<details><summary class="muted" style="cursor:pointer;font-size:13px">Invii registrati (${r.invii.length})</summary><div class="kv" style="margin-top:6px">${r.invii.map(i=>`<dt>${esc(tsIt(i.ts))}</dt><dd>${descInvio(i)}</dd>`).join("")}</div></details>`:""}
+  </div>
+  <div class="box"><div class="row" style="justify-content:space-between"><h3>Foglio nominativo</h3><span class="muted" style="font-size:13px">${r.ok.length} persone</span></div>
+   ${r.ok.length?`<div class="scroll"><table><thead><tr><th>Nome</th>${codes.map(k=>`<th class="code" style="text-align:center;padding:6px 3px">${esc(k)}</th>`).join("")}${S.cfg.acqua?"<th>Acqua</th>":""}<th>Nota</th><th></th></tr></thead>
+   <tbody>${r.ok.map(o=>`<tr><td>${esc(o.username)}${o.inseritoDa?` <span class="badge ${o.ospite?"flag":"warn"}">${o.ospite?"⚑ ospite":"⚠ da "+esc(o.inseritoDa)}</span>`:""}${o.tardivo?' <span class="badge bad">✗ fuori orario</span>':""}</td>${codes.map(k=>`<td class="x" style="padding:6px 3px">${o.scelte.includes(k)?"✕":""}</td>`).join("")}${S.cfg.acqua?`<td class="x">${o.acqua||""}</td>`:""}<td>${esc(o.nota)}</td><td><button class="btn sm" data-ed="${esc(o.uid)}">Modifica</button></td></tr>`).join("")}</tbody></table></div>`:'<div class="muted">Nessun ordine per questo giorno.</div>'}
+   <div class="row"><label class="f" style="flex:1;min-width:200px">Ordine per un collega<select id="addp"><option value="">Scegli una persona</option>${r.senzaOrdine.map(p=>`<option value="${esc(p.id)}">${esc(p.username)}</option>`).join("")}</select></label>
+     <button class="btn" id="addb" style="align-self:end">Inserisci</button><button class="btn" id="osp" style="align-self:end">⚑ Ospite</button></div></div>
+  <div class="box"><h3>Annullamenti e variazioni</h3>
+   ${r.registro.filter(x=>x.azione!=="prenota").length?`<div class="scroll"><table><thead><tr><th>Quando</th><th>Utente</th><th>Cosa</th><th>Orario</th><th class="hide-sm">Dettaglio</th></tr></thead><tbody>${r.registro.filter(x=>x.azione!=="prenota").map(x=>`<tr><td>${esc(tsIt(x.ts).slice(0,16))}</td><td>${esc(x.username)}${x.da!==x.username?` <span class="muted">(da ${esc(x.da)})</span>`:""}</td><td>${{modifica:"Variazione",annulla:"Annullamento",ripristina:"Nuovo dopo annullo"}[x.azione]||x.azione}</td><td>${x.entroLimite?'<span class="badge ok">✓ entro</span>':'<span class="badge bad">✗ fuori orario</span>'}${x.dopoInvio?' <span class="badge warn">⚠ dopo l\'invio</span>':""}</td><td class="hide-sm" style="white-space:normal;min-width:220px;font-size:13px">${esc(x.prima)} → ${esc(x.dopo)}</td></tr>`).join("")}</tbody></table></div>`:'<div class="muted">Nessuna variazione.</div>'}</div>`;
+  $("#rd").onchange=e=>{S.riepDay=e.target.value;renderAdmin($("#app"))};
+  $("#pdf").onclick=async()=>{try{const d=await api("documento",{data:day});await api("registraInvio",{data:day,modo:"app"});stampaDoc(d.html,d.titolo)}catch(e){toast(e.message)}};
+  const wtxt=async(modo)=>{const d=await api("documento",{data:day});await api("registraInvio",{data:day,modo});return d.whatsapp};
+  $("#cpw").onclick=async()=>{try{const t=await wtxt("copia");try{await navigator.clipboard.writeText(t);toast("Testo copiato: incollalo su WhatsApp ✓")}catch(e){showText(t)}tRiep(c)}catch(e){toast(e.message)}};
+  $("#wa").onclick=async(ev)=>{ev.preventDefault();const w=window.open("about:blank","_blank");try{const t=await wtxt("whatsapp");const u="https://wa.me/?text="+encodeURIComponent(t);if(w)w.location.href=u;else location.href=u;tRiep(c)}catch(e){if(w)w.close();toast(e.message)}};
+  c.querySelectorAll("[data-ed]").forEach(b=>b.onclick=()=>{const o=r.ok.find(x=>x.uid===b.dataset.ed);openDay(g,{uid:o.uid,username:o.username,ospite:o.ospite,ordine:o})});
+  $("#addb").onclick=()=>{const v=$("#addp").value;if(!v){toast("Scegli una persona");return}const p=r.senzaOrdine.find(x=>x.id===v);const ex=r.annullati.find(o=>o.uid===v);openDay(g,{uid:v,username:p.username,ordine:ex||null})};
+  $("#osp").onclick=()=>openDay(g,{ospite:true,username:"",ordine:null});
+}
+function showText(t){const sh=sheet(`<div class="top"><h2>Testo per la mensa</h2><button class="btn sm x" data-close>✕</button></div><div class="muted" style="font-size:13px">Tieni premuto sul testo, Seleziona tutto, Copia.</div><pre class="txt" style="user-select:all;-webkit-user-select:all">${esc(t)}</pre>`)}
+function stampaDoc(html, titolo){
+  const pa=$("#printarea"); const m=html.match(/<body>([\s\S]*)<\/body>/); pa.innerHTML=(m?m[1]:html);
+  let st=document.getElementById("pagestyle"); if(!st){st=document.createElement("style");st.id="pagestyle";document.head.appendChild(st)}
+  st.textContent="@page{size:A4 landscape;margin:10mm} #printarea .foglio{page-break-after:always} #printarea .foglio:last-child{page-break-after:auto} #printarea *{-webkit-print-color-adjust:exact;print-color-adjust:exact}";
+  const old=document.title; document.title=titolo;
+  try{navigator.clipboard&&navigator.clipboard.writeText(titolo).catch(()=>{})}catch(e){}
+  const done=()=>{document.title=old;pa.innerHTML="";window.removeEventListener("afterprint",done)};
+  window.addEventListener("afterprint",done);
+  setTimeout(()=>{window.print();setTimeout(()=>{if(document.title===titolo&&!matchMedia("print").matches){}},500)},60);
+}
+function scarica(nome, testo, tipo){const b=new Blob([testo],{type:tipo||"text/csv;charset=utf-8"});const a=document.createElement("a");a.href=URL.createObjectURL(b);a.download=nome;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1500)}
+
+/* ---- archivio ---- */
+async function tArch(c){
+  if(!S.settimane.length){c.innerHTML='<div class="empty">Nessuna settimana.</div>';return}
+  if(!S.archW||!S.settimane.some(w=>w.lunedi===S.archW))S.archW=S.week||S.settimane[0].lunedi;
+  const a=await api("archivio",{lunedi:S.archW});
+  c.innerHTML=`<div class="box"><div class="row"><label class="f" style="flex:1;min-width:200px">Settimana<select id="aw">${S.settimane.map(w=>`<option value="${w.lunedi}" ${w.lunedi===S.archW?"selected":""}>${w.settimana?"Sett. "+esc(w.settimana)+" · ":""}dal ${it(w.lunedi)}</option>`).join("")}</select></label>
+    <button class="btn primary" id="apdf" style="align-self:end">⎙ PDF settimana</button><button class="btn" id="acsv" style="align-self:end">CSV settimana</button></div>
+   <div class="list">${a.giorni.map(g=>`<div class="item"><div class="h"><b>${GIORNI_L[pd(g.data).getDay()]} ${it(g.data)}</b><span class="badge info">${g.pasti} ${g.pasti===1?"pasto":"pasti"}</span>${g.ospiti?`<span class="badge flag">⚑ ${g.ospiti} ospiti</span>`:""}${g.annullati?`<span class="badge neu">${g.annullati} ${g.annullati===1?"annullato":"annullati"}</span>`:""}${g.variazioni?`<span class="badge neu">${g.variazioni} ${g.variazioni===1?"variazione":"variazioni"}</span>`:""}</div>
+     ${g.invii.length?`<div class="kv">${g.invii.map(i=>`<dt>${esc(tsIt(i.ts))}</dt><dd>${descInvio(i)}</dd>`).join("")}</div>`:`<div class="muted" style="font-size:13px">⚠ Nessun invio registrato</div>`}</div>`).join("")}</div>
+   <div class="muted" style="font-size:13px">Gli invii automatici salvano il PDF anche nella cartella Drive della mensa, divisa per settimana.</div></div>`;
+  $("#aw").onchange=e=>{S.archW=e.target.value;tArch(c)};
+  $("#apdf").onclick=async()=>{try{const d=await api("documento",{giorni:a.giorni.map(g=>g.data)});stampaDoc(d.html,d.titolo)}catch(e){toast(e.message)}};
+  $("#acsv").onclick=async()=>{try{
+    const L=[["Giorno","Utente","Stato","Piatti","Acqua","Nota","Inserito da","Fuori orario","Ultima modifica"]];
+    for(const g of a.giorni){const r=await api("riepilogo",{data:g.data});r.ok.concat(r.annullati).forEach(o=>L.push([it(g.data),o.username,o.stato==="ok"?"Prenotato":"Annullato",o.scelte.join(" "),o.acqua,o.nota,o.inseritoDa,o.tardivo?"SI":"",tsIt(o.modificato)]));
+      g.invii.forEach(i=>L.push([it(g.data),"[INVIO] "+i.da,i.modo,"","","","","",tsIt(i.ts)]))}
+    L.push([],["Generato da "+S.me.username+" il "+new Date().toLocaleString("it-IT")]);
+    scarica("mensa_settimana_"+S.archW+".csv","﻿"+L.map(r=>r.map(v=>{v=String(v??"");return /[;"\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v}).join(";")).join("\r\n"))}catch(e){toast(e.message)}};
+}
+
+/* ---- menu: importazione dal PDF della mensa ---- */
+let pdfjsLib=null;
+async function loadPdfJs(){ if(pdfjsLib)return pdfjsLib; pdfjsLib=await import("./vendor/pdf.min.mjs"); pdfjsLib.GlobalWorkerOptions.workerSrc=new URL("vendor/pdf.worker.min.mjs",location.href).href; return pdfjsLib; }
+async function tMenu(c){
+  c.innerHTML=`<div class="box"><h3>Carica il menu del mese (PDF della mensa)</h3>
+    <div class="muted" style="font-size:13px">Il PDF che la mensa manda per email (es. "MENU NOVEMBRE 2026.pdf"). La app legge settimane, giorni, codici, allergeni, panna e maiale; tu controlli e salvi. Se un giorno esiste già viene sostituito.</div>
+    <div class="row"><input type="file" id="pf" accept="application/pdf,.pdf"><button class="btn primary" id="pr" disabled>Leggi il PDF</button></div>
+    <div id="ps" style="font-size:14px"></div></div>
+   <div id="dr"></div>
+   <div class="box"><h3>Menu caricati</h3>${S.settimane.length?`<div class="list">${S.settimane.slice().reverse().map(w=>`<div class="item"><div class="h"><b>${w.settimana?"Settimana "+esc(w.settimana)+" · ":""}dal ${it(w.lunedi)}</b><span class="muted" style="font-size:13px">${w.giorni.length} giorni</span><button class="btn sm" data-edw="${w.lunedi}">Correggi</button></div></div>`).join("")}</div>`:'<div class="muted">Nessun menu.</div>'}</div>`;
+  const pf=$("#pf"),pr=$("#pr");pf.onchange=()=>pr.disabled=!pf.files.length;
+  pr.onclick=()=>readPdf(pf.files[0]);
+  c.querySelectorAll("[data-edw]").forEach(b=>b.onclick=async()=>{const w=await api("settimana",{lunedi:b.dataset.edw});S.draft={origine:"correzione",settimane:[{n:w.settimana,note:w.note,giorni:w.giorni.map(g=>({data:g.data,piatti:g.piatti}))}],avvisi:[]};drawDraft()});
+  if(S.draft)drawDraft();
+}
+async function readPdf(f){
+  const ps=$("#ps");ps.innerHTML="Lettura del PDF…";
+  try{const lib=await loadPdfJs();const doc=await lib.getDocument({data:new Uint8Array(await f.arrayBuffer())}).promise;
+    const r=MenuPdf.parsePages(await MenuPdf.itemsFromPdf(doc));
+    if(!r.settimane.length)throw new Error("nessuna settimana riconosciuta. Il PDF è una scansione o ha un formato diverso?");
+    // manzo affettato: nota "MANZO AFF.TO" → proposta di aggiungerlo come secondo M (da confermare)
+    r.origine=f.name; S.draft=r;
+    const ng=r.settimane.reduce((s,w)=>s+w.giorni.length,0);
+    ps.innerHTML=`<div class="avviso ${r.avvisi.length?"warn":"ok"}">${r.avvisi.length?"⚠ ATTENZIONE&nbsp; ":"✓ OK&nbsp; "}Letti ${r.settimane.length} settimane, ${ng} giorni.${r.avvisi.length?"<br>"+r.avvisi.map(esc).join("<br>"):" Controlla e salva."}</div>`;
+    drawDraft();
+  }catch(e){ps.innerHTML=`<div class="avviso bad">✗ ERRORE&nbsp; Lettura non riuscita: ${esc(e.message)}</div>`}
+}
+function drawDraft(){
+  const dr=$("#dr");if(!dr||!S.draft)return;const D=S.draft;
+  const hasManzo=D.settimane.some(w=>(w.note||[]).some(n=>/MANZO AFF/i.test(n)));
+  dr.innerHTML=`<div class="box"><div class="row" style="justify-content:space-between"><h3>Controllo prima di salvare</h3><span class="muted" style="font-size:13px">${esc(D.origine||"")}</span></div>
+   ${hasManzo?`<label class="chk"><input type="checkbox" id="manzo"> Aggiungi ogni giorno il secondo <b class="code">M</b> “Manzo affettato con rucola e pomodorini” (nota in fondo al menu: da confermare con la mensa)</label>`:""}
+   ${D.settimane.map((w,wi)=>`<details ${wi===0?"open":""} style="border:1px solid var(--line);border-radius:var(--r);padding:10px"><summary style="cursor:pointer;font-weight:600;color:var(--omet)">Settimana <input data-wn="${wi}" value="${esc(w.n||"")}" style="width:56px;min-height:28px;padding:2px 6px" onclick="event.stopPropagation()"> · ${w.giorni.length} giorni ${w.giorni.length?"("+it(w.giorni[0].data).slice(0,5)+"–"+it(w.giorni[w.giorni.length-1].data).slice(0,5)+")":""}</summary>
+     ${(w.note||[]).length?`<div class="muted" style="font-size:13px;margin-top:6px">Note: ${w.note.map(esc).join(" · ")}</div>`:""}
+     ${w.giorni.map((g,gi)=>`<div style="display:grid;gap:6px;margin-top:12px"><div class="row"><label class="f">Data<input type="date" data-gd="${wi}.${gi}" value="${g.data}"></label><span class="muted" style="align-self:end;margin-bottom:8px">${GIORNI_L[pd(g.data).getDay()]} · ${g.piatti.length} piatti</span><button class="btn sm danger" data-gdel="${wi}.${gi}" style="align-self:end;margin-bottom:4px;margin-left:auto">Togli giorno</button></div>
+      <div class="mgrid"><div class="mrow eyebrow"><span>Tipo</span><span>Cod.</span><span>Piatto</span><span class="opt">Allerg.</span><span class="opt" title="panna">P</span><span class="opt" title="maiale">**</span><span></span></div>
+      ${g.piatti.map((x,pi)=>`<div class="mrow" data-k="${wi}.${gi}.${pi}"><select data-f="cat">${CATS.map(([k,l])=>`<option value="${k}" ${x.cat===k?"selected":""}>${l.slice(0,7)}</option>`).join("")}</select><input data-f="c" value="${esc(x.c)}" maxlength="2"><input data-f="n" value="${esc(x.n)}"><input data-f="all" class="opt" value="${esc(x.all)}"><input type="checkbox" data-f="panna" class="opt" ${x.panna?"checked":""}><input type="checkbox" data-f="maiale" class="opt" ${x.maiale?"checked":""}><button class="btn sm" data-del aria-label="Togli piatto">✕</button></div>`).join("")}
+      <button class="btn sm" data-add="${wi}.${gi}" style="justify-self:start">+ Aggiungi piatto</button></div></div>`).join("")}</details>`).join("")}
+   <div class="row"><button class="btn primary" id="sv">Salva e pubblica</button><button class="btn" id="dx">Scarta</button></div></div>`;
+  const key=s=>s.split(".").map(Number);
+  dr.querySelectorAll(".mrow[data-k] [data-f]").forEach(i=>i.onchange=()=>{const [w,g,p]=key(i.closest(".mrow").dataset.k);const x=D.settimane[w].giorni[g].piatti[p];const f=i.dataset.f;x[f]=i.type==="checkbox"?i.checked:(f==="c"?i.value.trim().toUpperCase():i.value)});
+  dr.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{const [w,g,p]=key(b.closest(".mrow").dataset.k);D.settimane[w].giorni[g].piatti.splice(p,1);drawDraft()});
+  dr.querySelectorAll("[data-add]").forEach(b=>b.onclick=()=>{const [w,g]=key(b.dataset.add);D.settimane[w].giorni[g].piatti.push({c:"",n:"",all:"",cat:"primo",panna:false,maiale:false});drawDraft()});
+  dr.querySelectorAll("[data-gd]").forEach(i=>i.onchange=()=>{const [w,g]=key(i.dataset.gd);D.settimane[w].giorni[g].data=i.value});
+  dr.querySelectorAll("[data-gdel]").forEach(b=>b.onclick=()=>{const [w,g]=key(b.dataset.gdel);D.settimane[w].giorni.splice(g,1);drawDraft()});
+  dr.querySelectorAll("[data-wn]").forEach(i=>i.onchange=()=>{D.settimane[+i.dataset.wn].n=i.value});
+  $("#dx").onclick=()=>{S.draft=null;renderAdmin($("#app"))};
+  $("#sv").onclick=async()=>{
+    const sett=JSON.parse(JSON.stringify(D.settimane));
+    if($("#manzo")&&$("#manzo").checked)sett.forEach(w=>w.giorni.forEach(g=>{if(!g.piatti.some(x=>x.c==="M")){const i=g.piatti.findIndex(x=>x.cat==="contorno");g.piatti.splice(i<0?g.piatti.length:i,0,{c:"M",n:"MANZO AFFETTATO CON RUCOLA E POMODORINI",all:"",cat:"secondo",panna:false,maiale:false})}}));
+    try{const r=await api("salvaMenu",{settimane:sett,origine:D.origine||""});S.draft=null;toast(`Menu salvato: ${r.giorni} giorni ✓`);await loadMe();S.view="admin";S.tab="menu";render()}catch(e){toast(e.message)}};
+}
+
+/* ---- utenti ---- */
+async function tUtenti(c){
+  const r=await api("utenti");const us=r.utenti;
+  S.inAttesa=us.filter(u=>u.stato==="attesa").length;
+  const att=us.filter(u=>u.stato==="attesa"), altri=us.filter(u=>u.stato!=="attesa");
+  const RU={utente:"Utente",addetto:"Addetto mensa",admin:"Amministratore"};
+  c.innerHTML=`${att.length?`<div class="box"><h3>Da approvare (${att.length})</h3><div class="list">${att.map(u=>`<div class="item" data-id="${esc(u.id)}"><div class="h"><b>${esc(u.username)}</b><span class="badge warn">⚠ in attesa</span></div>
+      <div class="muted" style="font-size:13px">Registrato il ${esc(tsIt(u.creato))}${u.email?" · "+esc(u.email):" · senza email"}</div>
+      <div class="row"><select data-r>${Object.entries(RU).map(([k,v])=>`<option value="${k}">${v}</option>`).join("")}</select><button class="btn primary sm" data-a="approva">✓ Approva</button><button class="btn danger sm" data-a="rifiuta">✗ Rifiuta</button></div></div>`).join("")}</div></div>`:""}
+   <div class="box"><div class="row" style="justify-content:space-between"><h3>Utenti (${altri.length})</h3><input id="uf" placeholder="Cerca…" style="max-width:200px"></div>
+   <div class="list" id="ul">${altri.map(u=>`<div class="item" data-id="${esc(u.id)}" data-n="${esc(u.username.toLowerCase())}"><div class="h"><b>${esc(u.username)}</b>
+      ${u.stato==="attivo"?'<span class="badge ok">✓ attivo</span>':u.stato==="rifiutato"?'<span class="badge neu">— rifiutato</span>':'<span class="badge neu">— disattivo</span>'}${u.ruolo!=="utente"?`<span class="badge info">${RU[u.ruolo]}</span>`:""}${u.ruolo!=="utente"&&u.notifiche?'<span class="badge info">✉ notifiche</span>':""}</div>
+      <div class="muted" style="font-size:13px">${u.email?esc(u.email)+(u.mailMenu?" · menu del giorno":""):"senza email"} · ultimo accesso ${u.ultimoAccesso?esc(tsIt(u.ultimoAccesso)):"mai"}${u.approvatoDa?" · approvato da "+esc(u.approvatoDa):""}</div>
+      ${u.id!==S.me.id&&u.stato!=="rifiutato"?`<div class="row"><select data-r>${Object.entries(RU).map(([k,v])=>`<option value="${k}" ${u.ruolo===k?"selected":""}>${v}</option>`).join("")}</select>
+        ${u.ruolo!=="utente"?`<button class="btn sm" data-a="notifiche">${u.notifiche?"Togli notifiche":"Attiva notifiche"}</button>`:""}<button class="btn sm" data-a="resetPin">Reimposta PIN</button><button class="btn sm ${u.stato==="attivo"?"danger":""}" data-a="${u.stato==="attivo"?"disattiva":"riattiva"}">${u.stato==="attivo"?"Disattiva":"Riattiva"}</button></div>`:u.id===S.me.id?'<div class="muted" style="font-size:13px">Sei tu</div>':""}</div>`).join("")}</div></div>`;
+  const run=async(id,azione,ruolo)=>{
+    if(azione==="rifiuta"&&!confirm("Rifiutare questa registrazione?"))return;
+    if(azione==="disattiva"&&!confirm("Disattivare l'utente? Non potrà più entrare; i suoi dati restano nei report."))return;
+    try{const x=await api("gestisciUtente",{id,azione,ruolo});
+      if(x.pin){sheet(`<div class="top"><h2>Nuovo PIN provvisorio</h2><button class="btn sm x" data-close>✕</button></div><div>PIN per <b>${esc(x.utente.username)}</b>:</div><div class="big code" style="font-size:40px;letter-spacing:.2em">${x.pin}</div><div class="avviso">i&nbsp; Comunicalo alla persona: lo cambierà dal profilo. Tutti i suoi accessi sono stati chiusi.</div>`)}
+      else toast("Fatto ✓");
+      const io=await api("io");S.inAttesa=io.inAttesa||0;tUtenti(c);
+    }catch(e){toast(e.message)}};
+  c.querySelectorAll("[data-a]").forEach(b=>b.onclick=()=>{const it_=b.closest(".item");run(it_.dataset.id,b.dataset.a,it_.querySelector("[data-r]")?.value)});
+  c.querySelectorAll(".item [data-r]").forEach(s=>{if(s.closest(".item").querySelector('[data-a="approva"]'))return;s.onchange=()=>run(s.closest(".item").dataset.id,"ruolo",s.value)});
+  $("#uf").oninput=e=>{const q=e.target.value.toLowerCase();c.querySelectorAll("#ul .item").forEach(i=>i.hidden=!i.dataset.n.includes(q))};
+}
+
+/* ---- impostazioni ---- */
+async function tImp(c){
+  const r=await api("impostazioni");const C=r.cfg,L=C.limiti;
+  c.innerHTML=`<div class="box"><h3>Orari e regole</h3>
+   <div class="grid2"><label class="f">Orario limite (ordini, variazioni, annullamenti)<input type="time" id="ic" value="${esc(C.cutoff)}"></label>
+     <label class="f">Il limite vale<select id="icg"><option value="stesso" ${C.cutoffGiorno==="stesso"?"selected":""}>il giorno stesso</option><option value="prima" ${C.cutoffGiorno==="prima"?"selected":""}>il giorno prima</option></select></label></div>
+   <div class="eyebrow">Piatti massimi per persona</div>
+   <div class="row">${CATS.map(([k,lab])=>`<label class="f">${lab}<input type="number" min="0" max="5" data-l="${k}" value="${L[k]}" style="width:90px"></label>`).join("")}<label class="f">Minimo piatti<input type="number" min="1" max="5" id="imin" value="${C.minPiatti}" style="width:90px"></label></div>
+   <label class="chk"><input type="checkbox" id="iacq" ${C.acqua?"checked":""}> Scelta dell'acqua (naturale / gassata)</label>
+   <label class="chk"><input type="checkbox" id="iat" ${C.annullaTardivo?"checked":""}> L'utente può annullare anche dopo l'orario (segnalato come in ritardo)</label>
+   <label class="chk"><input type="checkbox" id="iapp" ${C.approvazione?"checked":""}> I nuovi utenti devono essere approvati</label></div>
+  <div class="box"><h3>Email automatiche</h3>
+   <label class="chk"><input type="checkbox" id="ira" ${C.riepilogoAuto?"checked":""}> All'orario limite manda agli addetti il riepilogo con PDF e testo WhatsApp</label>
+   <label class="chk"><input type="checkbox" id="inn" ${C.notificaNuovi?"checked":""}> Avvisa gli addetti anche dei nuovi ordini (non solo variazioni e annullamenti)</label>
+   <label class="chk"><input type="checkbox" id="inw" ${C.nominativoWhatsApp?"checked":""}> Nel testo WhatsApp metti anche l'elenco dei nomi</label>
+   <div class="grid2"><label class="f">Ora della mail "menu del giorno"<input type="time" id="imm" value="${esc(C.orarioMenuMail)}"></label>
+   <label class="f">Altre caselle per le notifiche (separate da virgola)<input id="iex" value="${esc(C.emailExtra)}"></label>
+   <label class="f">Email dell'amministrazione (report mensile il giorno 1)<input id="iam" type="email" value="${esc(C.emailAmministrazione)}"></label></div>
+   <div class="muted" style="font-size:13px">Le notifiche vanno agli utenti con ruolo addetto o amministratore che hanno “notifiche” attive e un'email, più le caselle extra.</div>
+   <div class="row"><button class="btn primary" id="is">Salva impostazioni</button></div></div>
+  <div class="box"><div class="row" style="justify-content:space-between"><h3>Posta ${DEMO?"(simulata)":"inviata"}</h3>${r.quota!=null?`<span class="badge ${r.quota<20?"warn":"info"}">Email rimaste oggi: ${r.quota}</span>`:""}</div>
+   <div class="row"><button class="btn sm" id="itest">Email di prova a me</button><button class="btn sm" id="itick">Esegui ora i lavori a orario</button></div>
+   ${DEMO?demoPosta():`<div class="scroll" style="max-height:300px"><table><thead><tr><th>Quando</th><th>A</th><th>Oggetto</th><th>Esito</th></tr></thead><tbody>${r.posta.map(p=>`<tr><td>${esc(tsIt(p.ts))}</td><td>${esc(p.a)}</td><td>${esc(p.oggetto)}</td><td>${p.esito==="inviata"?'<span class="badge ok">✓</span>':`<span class="badge bad">✗</span> ${esc(p.esito)}`}</td></tr>`).join("")}</tbody></table></div>`}</div>`;
+  $("#is").onclick=async()=>{const lim={};c.querySelectorAll("[data-l]").forEach(i=>lim[i.dataset.l]=Math.max(0,+i.value||0));
+    const v={cutoff:$("#ic").value||"09:30",cutoffGiorno:$("#icg").value,limiti:lim,minPiatti:Math.max(1,+$("#imin").value||1),acqua:$("#iacq").checked,annullaTardivo:$("#iat").checked,approvazione:$("#iapp").checked,
+      riepilogoAuto:$("#ira").checked,notificaNuovi:$("#inn").checked,nominativoWhatsApp:$("#inw").checked,orarioMenuMail:$("#imm").value||"07:30",emailExtra:$("#iex").value.trim(),emailAmministrazione:$("#iam").value.trim()};
+    try{await api("impostazioni",{salva:v});await loadMe();S.view="admin";toast("Impostazioni salvate ✓");render()}catch(e){toast(e.message)}};
+  $("#itest").onclick=async()=>{try{const x=await api("provaEmail");toast(x.ok?"Email di prova inviata ✓":"Invio non riuscito: vedi elenco");tImp(c)}catch(e){toast(e.message)}};
+  $("#itick").onclick=async()=>{try{const x=await api("tickOra");toast(x.fatti.length?"Fatto: "+x.fatti.join(", "):"Niente da fare in questo momento");tImp(c)}catch(e){toast(e.message)}};
+  c.querySelectorAll("[data-mail]").forEach(b=>b.onclick=()=>{const m=demoEnv.outbox[+b.dataset.mail];sheet(`<div class="top"><div><div class="eyebrow">Email simulata · ${esc(tsIt(m.ts))}</div><h3>${esc(m.subject)}</h3></div><button class="btn sm x" data-close>✕</button></div><div class="muted" style="font-size:13px">A: ${esc(m.to.join(", "))}${m.allegato?" · allegato "+esc(m.allegato):""}</div><pre class="txt">${esc(m.body)}</pre>`)});
+}
+function demoPosta(){const o=demoEnv.outbox;if(!o.length)return'<div class="muted">Nessuna email simulata.</div>';
+  return `<div class="list">${o.map((m,i)=>[m,i]).reverse().slice(0,30).map(([m,i])=>`<button class="item" data-mail="${i}" style="text-align:left;cursor:pointer;font:inherit;color:inherit"><span class="h"><b style="font-size:14px">${esc(m.subject)}</b></span><span class="muted" style="font-size:12px">${esc(tsIt(m.ts))} · a ${esc(m.to.join(", "))}${m.allegato?" · 📎 "+esc(m.allegato):""}</span></button>`).join("")}</div>`}
+
+/* ---- report mensile ---- */
+async function tRep(c){
+  const m0=S.repMese||oggi().slice(0,7);
+  c.innerHTML=`<div class="box"><div class="row"><label class="f">Mese<input type="month" id="rm" value="${m0}"></label><button class="btn primary" id="rg" style="align-self:end">Calcola</button></div><div id="ro" style="display:grid;gap:14px"></div></div>`;
+  $("#rm").onchange=e=>S.repMese=e.target.value;
+  $("#rg").onclick=()=>runRep($("#rm").value);
+  runRep(m0);
+}
+async function runRep(mese){
+  const ro=$("#ro");ro.innerHTML='<div class="muted">Calcolo…</div>';
+  try{const R=await api("report",{mese});
+    ro.innerHTML=R.righe.length?`<div class="tiles"><div class="tile"><div class="eyebrow">Pasti</div><div class="big">${R.totali.pasti}</div></div><div class="tile"><div class="eyebrow">Variazioni</div><div class="big">${R.totali.variazioni}</div></div><div class="tile warn"><div class="eyebrow">Annullamenti</div><div class="big">${R.totali.annullati}</div></div><div class="tile bad"><div class="eyebrow">Fuori orario</div><div class="big">${R.totali.tardivi}</div></div></div>
+     <div class="muted" style="font-size:13px">Ordinato per numero di annullamenti: in cima chi annulla di più.</div>
+     <div class="scroll"><table><thead><tr><th>Utente</th><th>Pasti</th><th>Variazioni</th><th>Annullati</th><th>Fuori orario</th><th class="hide-sm">Inseriti da addetti</th></tr></thead><tbody>${R.righe.map(r=>`<tr><td>${esc(r.username)}${r.ospite?' <span class="badge flag">⚑ ospite</span>':""}</td><td>${r.pasti}</td><td>${r.variazioni||""}</td><td>${r.annullati?`<b>${r.annullati}</b>`:""}</td><td>${r.annullatiTardivi?`<span class="badge bad">✗ ${r.annullatiTardivi}</span>`:""}</td><td class="hide-sm">${r.perConto||""}</td></tr>`).join("")}</tbody></table></div>
+     <div class="row"><button class="btn" id="rx">Scarica CSV per Excel</button></div>`:'<div class="muted">Nessun ordine in questo mese.</div>';
+    if($("#rx"))$("#rx").onclick=async()=>{const x=await api("csvReport",{mese});scarica(x.nome,x.csv)};
+  }catch(e){ro.innerHTML=`<div class="avviso bad">✗ ERRORE&nbsp; ${esc(e.message)}</div>`}
+}
+
+/* ===================== service worker (app installabile e uso senza rete) ===================== */
+if ("serviceWorker" in navigator && location.protocol!=="file:") {
+  navigator.serviceWorker.register("sw.js").then(reg=>{
+    const ask=w=>toast("È disponibile una nuova versione della app",15000,{t:"Aggiorna",f:()=>w.postMessage("skipWaiting")});
+    if(reg.waiting&&navigator.serviceWorker.controller)ask(reg.waiting);
+    reg.addEventListener("updatefound",()=>{const w=reg.installing;w&&w.addEventListener("statechange",()=>{if(w.state==="installed"&&navigator.serviceWorker.controller)ask(w)})});
+    setInterval(()=>reg.update().catch(()=>{}),60*60*1000);
+  }).catch(()=>{});
+  let ricaricato=false; navigator.serviceWorker.addEventListener("controllerchange",()=>{if(ricaricato)return;ricaricato=true;location.reload()});
+}
+if (DEMO) { const s=document.createElement("script"); s.src="js/demo-menu.js"; s.onload=boot; s.onerror=boot; document.head.appendChild(s); } else boot();
+</script>
+</body>
+</html>
