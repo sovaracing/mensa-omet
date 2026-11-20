@@ -14,8 +14,8 @@
 var MensaCore = (function () {
   "use strict";
 
-  var VERSIONE = "v0.3";
-  var DATA_VERSIONE = "17/11/2026";
+  var VERSIONE = "v0.5";
+  var DATA_VERSIONE = "20/11/2026";
 
   /* ---------- schema delle tabelle (anche intestazioni del Foglio) ----------
      Le colonne nuove si aggiungono SOLO in fondo: il Foglio legge per posizione. */
@@ -26,7 +26,8 @@ var MensaCore = (function () {
     menu: [["data"], ["lunedi"], ["settimana"], ["cod"], ["nome"], ["all"], ["cat"], ["panna", "b"], ["maiale", "b"], ["pos", "n"]],
     menuNote: [["lunedi"], ["settimana"], ["note"], ["caricatoDa"], ["caricatoIl"], ["origine"]],
     ordini: [["id"], ["data"], ["uid"], ["username"], ["scelte"], ["acqua"], ["nota"], ["stato"], ["creato"], ["modificato"],
-      ["inseritoDa"], ["tardivo", "b"], ["ospite", "b"]],
+      ["inseritoDa"], ["tardivo", "b"], ["ospite", "b"], ["annullatoDa"], ["annullatoIl"]],
+    richieste: [["id"], ["data"], ["uid"], ["username"], ["ts"], ["stato"], ["gestitoDa"], ["gestitoIl"], ["motivo"], ["chiave"], ["notificata", "b"], ["pasto"]],
     registro: [["ts"], ["data"], ["uid"], ["username"], ["azione"], ["prima"], ["dopo"], ["entroLimite", "b"], ["da"], ["dopoInvio", "b"],
       ["dopoChiusura", "b"], ["notificato", "b"]],
     invii: [["id"], ["data"], ["ts"], ["da"], ["modo"], ["pasti", "n"], ["file"]],
@@ -35,7 +36,10 @@ var MensaCore = (function () {
     comunicati: [["data"], ["ts"], ["motivo"], ["conteggi", "j"]]
   };
 
-  var CATS = [["primo", "Primi"], ["secondo", "Secondi"], ["contorno", "Contorni"], ["fine", "Frutta e dolce"]];
+  // gruppi di scelta: contorni, frutta e dolce sono un unico gruppo (o l'uno o l'altro)
+  var CATS = [["primo", "Primi"], ["secondo", "Secondi"], ["contorno", "Contorno, frutta o dolce"]];
+  var CATS_MENU = [["primo", "Primo"], ["secondo", "Secondo"], ["contorno", "Contorno"], ["fine", "Frutta/dolce"]];   // categorie del menu (lettura PDF)
+  function grp(cat) { return cat === "fine" ? "contorno" : cat; }
   var GIORNI = ["domenica", "lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato"];
   var GIORNI_B = ["dom", "lun", "mar", "mer", "gio", "ven", "sab"];
 
@@ -45,11 +49,14 @@ var MensaCore = (function () {
     chiusuraOra: "17:00",
     cutoff: "09:30",            // dopo la chiusura: annullamento entro quest'ora del giorno stesso
     variazioni: false,          // dopo la chiusura si possono anche cambiare i piatti (entro lo stesso orario)
-    limiti: { primo: 1, secondo: 1, contorno: 1, fine: 1 },
+    limiti: { primo: 1, secondo: 1, contorno: 1 },          // "contorno" = contorno, frutta o dolce
+    varianti: { B: ["pasta", "riso"], C: ["pasta", "riso"], P: ["pizza", "tramezzino al tonno"] },   // la prima è quella proposta
     minPiatti: 1,
     nominativoWhatsApp: false,  // elenco nomi anche nel testo per il fornitore
     approvazione: true,
-    emailExtra: "",             // altre caselle per le email agli addetti (separate da virgola)
+    approvazioniFino: "10:00",  // i gestori approvano le richieste di annullamento entro quest'ora del giorno; poi scadono (il pasto resta)
+    orarioControllo: "11:00",   // foglio di controllo consegna ai gestori e all'amministrazione
+    emailExtra: "",             // altre caselle per le email ai gestori mensa (separate da virgola)
     emailAmministrazione: "",   // report mensile, primo giorno lavorativo del mese
     mailWeekend: false,         // email anche sabato e domenica
     nomeMensa: "Mensa",
@@ -73,7 +80,8 @@ var MensaCore = (function () {
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
   function err(code, msg) { var e = new Error(msg); e.code = code; e.utente = true; return e; }
   function norm(u) { return String(u || "").trim().toLowerCase(); }
-  function splitCodes(s) { return String(s || "").split(/\s+/).filter(Boolean); }
+  // le scelte si salvano separate da "|" (le varianti possono contenere spazi); i dati vecchi erano separati da spazi
+  function splitCodes(s) { s = String(s || ""); return (s.indexOf("|") >= 0 || s.indexOf("~") >= 0 ? s.split("|") : s.split(/\s+/)).map(function (x) { return x.trim(); }).filter(Boolean); }
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
   function uniq(a) { return a.filter(function (v, i) { return a.indexOf(v) === i; }); }
   function passato(n, x) { return n.date > x.date || (n.date === x.date && n.time >= x.time); }   // n è uguale o dopo x
@@ -89,7 +97,8 @@ var MensaCore = (function () {
       if (_cfg) return clone(_cfg);
       var c = clone(DEF_CFG);
       S.rows("config").forEach(function (r) { if (r.chiave in c && r.valore !== null && r.valore !== undefined) c[r.chiave] = r.valore; });
-      c.limiti = Object.assign({}, DEF_CFG.limiti, c.limiti || {});
+      c.limiti = Object.assign({}, DEF_CFG.limiti, c.limiti || {}); delete c.limiti.fine;
+      if (!c.varianti || typeof c.varianti !== "object") c.varianti = clone(DEF_CFG.varianti);
       _cfg = c;
       return clone(c);
     }
@@ -135,7 +144,7 @@ var MensaCore = (function () {
     function isAddetto(u) { return u.ruolo === "addetto" || u.ruolo === "admin"; }
     function serve(u, liv) {
       if (liv === "admin" && u.ruolo !== "admin") throw err("perm", "Funzione riservata all'amministratore.");
-      if (liv === "addetto" && !isAddetto(u)) throw err("perm", "Funzione riservata agli addetti mensa.");
+      if (liv === "addetto" && !isAddetto(u)) throw err("perm", "Funzione riservata ai gestori mensa.");
     }
     function checkPin(pin) { if (!/^\d{4,6}$/.test(String(pin || ""))) throw err("pin", "Il PIN deve avere da 4 a 6 cifre."); }
     function emailOk(e) { return !e || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e); }
@@ -235,6 +244,7 @@ var MensaCore = (function () {
       var note = S.rows("menuNote").filter(function (r) { return r.lunedi === lun; })[0];
       var miei = {};
       S.rows("ordini").forEach(function (o) { if (o.uid === u.id && lunedi(o.data) === lun) miei[o.data] = pubOrd(o); });
+      S.rows("richieste").forEach(function (r) { if (r.uid === u.id && miei[r.data] && (!miei[r.data].richiesta || miei[r.data].richiesta.ts < r.ts)) miei[r.data].richiesta = pubRich(r); });
       return Object.assign(infoSettimana(lun, c), {
         settimana: note ? note.settimana : "", note: note ? String(note.note || "").split("\n").filter(Boolean) : [],
         giorni: Object.keys(giorni).sort().map(function (d) { return { data: d, piatti: piattiDel(d), stato: statoGiorno(d, c), cutoff: c.cutoff, ordine: miei[d] || null }; })
@@ -271,14 +281,42 @@ var MensaCore = (function () {
 
     /* ---------- ordini ---------- */
     function pubOrd(o) {
-      return { id: o.id, data: o.data, uid: o.uid, username: o.username, scelte: splitCodes(o.scelte), acqua: o.acqua || "", nota: o.nota || "", stato: o.stato,
-        creato: o.creato, modificato: o.modificato, inseritoDa: o.inseritoDa || "", tardivo: !!o.tardivo, ospite: !!o.ospite };
+      return { id: o.id, data: o.data, uid: o.uid, username: o.username, scelte: splitCodes(o.scelte).map(function (t) { return canon(t); }), acqua: o.acqua || "", nota: o.nota || "", stato: o.stato,
+        creato: o.creato, modificato: o.modificato, inseritoDa: o.inseritoDa || "", tardivo: !!o.tardivo, ospite: !!o.ospite,
+        annullatoDa: o.annullatoDa || "", annullatoIl: o.annullatoIl || "" };
     }
-    function nomePiatto(piatti, c) { var p = piatti.filter(function (x) { return x.c === c; })[0]; return p ? cap(p.n) : "?"; }
+    /* scelte: "A", "4", oppure codice~variante per i piatti con varianti ("B~riso", "P~tramezzino al tonno") */
+    function tok(t) { var i = String(t).indexOf("~"); return i < 0 ? { c: String(t), v: "" } : { c: String(t).slice(0, i), v: String(t).slice(i + 1) }; }
+    function varDi(c, cv) { var l = (cv || cfg().varianti)[c]; return Array.isArray(l) && l.length ? l : null; }
+    function canon(t, cv) { var x = tok(t), l = varDi(x.c, cv); if (!l) return x.c; return x.c + "~" + (l.indexOf(x.v) >= 0 ? x.v : l[0]); }
+    function piattoDi(piatti, t) { var c = tok(t).c; return piatti.filter(function (x) { return x.c === c; })[0]; }
+    function nomeTok(piatti, t, cv) {   // "Pomodoro – riso"; se il piatto si chiama come una sua variante (Pizza: pizza/tramezzino) si mostra solo la variante
+      var p = piattoDi(piatti, t), k = tok(canon(t, cv)), n = p ? cap(p.n) : "?";
+      if (!k.v) return n;
+      var l = varDi(k.c, cv) || [];
+      return l.some(function (v) { return v.toLowerCase() === n.toLowerCase(); }) ? cap(k.v) : n + " – " + k.v;
+    }
+    function etichetta(piatti, t, cv) { return tok(t).c + " " + nomeTok(piatti, t, cv); }               // "B Pomodoro – riso"
+    function breve(t, cv) { var k = tok(canon(t, cv)); return k.c + (k.v ? " " + k.v : ""); }             // "B riso"
+    function ordinaTok(piatti, l) { return l.sort(function (a, b) { var ia = piatti.findIndex(function (x) { return x.c === tok(a).c; }), ib = piatti.findIndex(function (x) { return x.c === tok(b).c; }); return ia - ib || (a < b ? -1 : 1); }); }
+    // righe di conteggio nell'ordine del menu, con le varianti separate; solo quelle con almeno un pasto se soloPieni
+    function righeConteggio(piatti, cod, soloPieni, cv) {
+      var out = [];
+      piatti.forEach(function (x) {
+        var l = varDi(x.c, cv), toks = l ? l.map(function (v) { return x.c + "~" + v; }) : [x.c];
+        toks.forEach(function (t) { var n = cod[t] || 0; if (soloPieni && !n) return; out.push({ t: t, c: x.c, v: tok(t).v, nome: cap(x.n), label: nomeTok(piatti, t, cv), gruppo: grp(x.cat), n: n }); });
+      });
+      return out;
+    }
+    function sceltePerGruppo(piatti, scelte, cv) {   // {primo:"A Ragù", secondo:"4 Stracchino", contorno:"Z Insalata"}
+      var g = {}; CATS.forEach(function (cc) { g[cc[0]] = []; });
+      scelte.forEach(function (t) { var p = piattoDi(piatti, t); g[p ? grp(p.cat) : "contorno"].push(etichetta(piatti, t, cv)); });
+      Object.keys(g).forEach(function (k) { g[k] = g[k].join(", "); });
+      return g;
+    }
     function descr(o, piatti) {
       if (!o || o.stato !== "ok") return "nessun pasto";
-      return splitCodes(o.scelte).map(function (c) { return c + " " + nomePiatto(piatti, c); }).join(", ") +
-        ", acqua " + (o.acqua === "G" ? "gassata" : "naturale") + (o.nota ? " – nota: " + o.nota : "");
+      return splitCodes(o.scelte).map(function (t) { return etichetta(piatti, t); }).join(", ") + ", acqua " + (o.acqua === "G" ? "gassata" : "naturale");
     }
     function inviato(day) { return S.rows("comunicati").some(function (r) { return r.data === day; }); }
 
@@ -307,19 +345,20 @@ var MensaCore = (function () {
         dest = S.rows("utenti").filter(function (x) { return x.id === p.uid; })[0];
         if (!dest) throw err("dati", "Utente non trovato.");
       } else dest = u;
-      var sc = uniq((p.scelte || []).map(function (x) { return String(x).toUpperCase(); }));
-      sc.forEach(function (k) { if (!piatti.some(function (x) { return x.c === k; })) throw err("dati", "Codice " + k + " non presente nel menu del giorno."); });
+      var sc = uniq((p.scelte || []).map(function (x) { var k = tok(x); return canon(k.c.toUpperCase() + (k.v ? "~" + k.v.toLowerCase() : ""), c.varianti); }));
+      sc.forEach(function (k) { if (!piattoDi(piatti, k)) throw err("dati", "Codice " + tok(k).c + " non presente nel menu del giorno."); });
+      if (uniq(sc.map(function (k) { return tok(k).c; })).length !== sc.length) throw err("regole", "Per ogni piatto scegli una sola variante.");
       if (!perConto) CATS.forEach(function (cc) {
-        var lim = +c.limiti[cc[0]], n = sc.filter(function (k) { return piatti.filter(function (x) { return x.c === k; })[0].cat === cc[0]; }).length;
+        var lim = +c.limiti[cc[0]], n = sc.filter(function (k) { return grp(piattoDi(piatti, k).cat) === cc[0]; }).length;
         if (n > lim) throw err("regole", cc[1] + ": al massimo " + lim + ".");
       });
       if (sc.length < (+c.minPiatti || 1)) throw err("regole", "Scegli almeno " + (+c.minPiatti || 1) + " piatto.");
       var pref = (S.rows("utenti").filter(function (x) { return x.id === dest.id; })[0] || {}).acqua;
       var acqua = /^[NG]$/.test(p.acqua || "") ? p.acqua : (pref === "G" ? "G" : "N");          // l'acqua c'è sempre
       var nota = String(p.nota || "").slice(0, 120);
-      sc.sort(function (a, b) { return piatti.findIndex(function (x) { return x.c === a; }) - piatti.findIndex(function (x) { return x.c === b; }); });
+      ordinaTok(piatti, sc);
       var id = day + "_" + dest.id, ex = S.rows("ordini").filter(function (o) { return o.id === id; })[0], n = now();
-      var row = { id: id, data: day, uid: dest.id, username: dest.username, scelte: sc.join(" "), acqua: acqua, nota: nota, stato: "ok",
+      var row = { id: id, data: day, uid: dest.id, username: dest.username, scelte: sc.join("|"), acqua: acqua, nota: nota, stato: "ok",
         creato: ex ? ex.creato : n.ts, modificato: n.ts, inseritoDa: perConto ? u.username : (ex ? ex.inseritoDa : ""), tardivo: dopo, ospite: !!p.ospite };
       var azione = ex ? (ex.stato === "ok" ? "modifica" : "ripristina") : "prenota";
       var sett = function () { return p.conSettimana ? settimana(u, { lunedi: lunedi(day) }) : undefined; };
@@ -329,20 +368,184 @@ var MensaCore = (function () {
       return { ordine: pubOrd(row), settimana: sett() };
     }
 
+    /* ---------- annullamenti: dopo l'invio dell'ordine l'utente fa una RICHIESTA che un gestore approva ---------- */
+    function pubRich(r) { return { id: r.id, data: r.data, uid: r.uid, username: r.username, ts: r.ts, stato: r.stato, gestitoDa: r.gestitoDa || "", gestitoIl: r.gestitoIl || "", motivo: r.motivo || "", pasto: r.pasto || "" }; }
+    function fraseGiorno(day) { return giornoL(day) + " " + it(day); }
+    function testoRichiesta(r) { return "Ciao, ti ho inviato dalla app Mensa Omet una richiesta di annullamento per il pasto di " + fraseGiorno(r.data) + " (" + r.pasto + "). Grazie!"; }
+    function testoConferma(username, day, pasto, chi, quando) { return "Ciao " + username + ", ti confermo l'annullamento del pasto di " + fraseGiorno(day) + (pasto ? " (" + pasto + ")" : "") + ". Annullato da " + chi + " il " + tsIt(quando).replace(" ore ", " alle ") + "."; }
+    function emailUtente(uid) { var x = S.rows("utenti").filter(function (y) { return y.id === uid; })[0]; return x && x.stato === "attivo" ? x.email || "" : ""; }
+    function scadenzaApprov(day, c) { return { date: day, time: (c || cfg()).approvazioniFino }; }
+
     function annullaOrdine(u, p) {
-      var day = p.data, c = cfg(), uid = p.uid || u.id;
+      var day = p.data, c = cfg(), uid = p.uid || u.id, gest = isAddetto(u);
       if (uid !== u.id) serve(u, "addetto");
       var st = statoGiorno(day, c), dopo = st === "chiuso" || st === "concluso";
-      if (!isAddetto(u) && st === "concluso") throw err("chiuso", "Sono passate le " + c.cutoff + ": per annullare chiama gli addetti mensa.");
       var id = day + "_" + uid, ex = S.rows("ordini").filter(function (o) { return o.id === id; })[0];
       var sett = function () { return p.conSettimana ? settimana(u, { lunedi: lunedi(day) }) : undefined; };
       if (!ex) throw err("dati", "Non c'è un ordine da annullare.");
       if (ex.stato !== "ok") return { ok: true, giaAnnullato: true, settimana: sett() };   // doppio invio dopo un errore di rete
-      var n = now(), piatti = piattiDel(day);
-      S.update("ordini", "id", id, { stato: "annullato", modificato: n.ts, tardivo: dopo, inseritoDa: uid !== u.id ? u.username : ex.inseritoDa });
-      registra_(day, { id: uid, username: ex.username }, "annulla", descr(ex, piatti), "nessun pasto", st !== "concluso", u.username, dopo);
-      return { ok: true, dopoChiusura: dopo, settimana: sett() };
+      if (!gest && st === "concluso") throw err("chiuso", "Sono passate le " + c.cutoff + ": per annullare chiama un gestore mensa.");
+      if (!gest && st === "chiuso") {   // ordine già inviato: serve l'approvazione di un gestore
+        var gia = S.rows("richieste").filter(function (r) { return r.data === day && r.uid === uid && r.stato === "attesa"; })[0];
+        if (gia) return { richiesta: pubRich(gia), condividi: testoRichiesta(gia), settimana: sett() };
+        var n = now(), r = { id: "R" + env.uuid().replace(/-/g, "").slice(0, 10), data: day, uid: uid, username: ex.username, ts: n.ts, stato: "attesa", gestitoDa: "", gestitoIl: "", motivo: "",
+          chiave: env.uuid().replace(/-/g, ""), notificata: false, pasto: descr(ex, piattiDel(day)).replace(/, acqua.*$/, "") };
+        S.insert("richieste", r);
+        if (c.mailWeekend || !weekend(n.date)) avvisaRichiesta(r);
+        return { richiesta: pubRich(r), condividi: testoRichiesta(r), settimana: sett() };
+      }
+      var esito = applicaAnnullo(ex, u.username, dopo, st !== "concluso");
+      return Object.assign(esito, { ok: true, dopoChiusura: dopo, settimana: sett() });
     }
+    // effettua l'annullamento e lo registra; dopo la chiusura va in coda l'email di variazione ai gestori
+    function applicaAnnullo(ex, chi, dopo, entro) {
+      var n = now(), piatti = piattiDel(ex.data), pasto = descr(ex, piatti).replace(/, acqua.*$/, "");
+      var daAltri = chi !== ex.username;
+      S.update("ordini", "id", ex.id, { stato: "annullato", modificato: n.ts, tardivo: dopo, annullatoDa: daAltri || dopo ? chi : "", annullatoIl: daAltri || dopo ? n.ts : "" });
+      registra_(ex.data, { id: ex.uid, username: ex.username }, "annulla", descr(ex, piatti), "nessun pasto", entro, chi, dopo);
+      var conferma = testoConferma(ex.username, ex.data, pasto, chi, n.ts);
+      if (dopo && daAltri) { var e = emailUtente(ex.uid); if (e) manda(e, "Mensa – annullamento confermato: " + fraseGiorno(ex.data), conferma + "\n\n" + (env.appUrl || ""), null, "conferma"); }
+      return { conferma: daAltri ? conferma : "", annullatoDa: chi, annullatoIl: n.ts };
+    }
+    function firmaLink(r, uid) { return env.hash(r.chiave + ":" + uid).slice(0, 24); }
+    function avvisaRichiesta(r) {
+      var base = env.webUrl || "", c = cfg();
+      var ogg = "Mensa – RICHIESTA di annullamento: " + r.username + ", " + fraseGiorno(r.data);
+      var corpo = function (q) {
+        var link = function (a) { return base + "?r=" + r.id + q + "&a=" + a; };
+        return r.username + " chiede di annullare il pasto di " + fraseGiorno(r.data) + "\n  " + r.pasto + "\nRichiesta del " + tsIt(r.ts) + ".\n\n" +
+          (base ? "APPROVA:  " + link("approva") + "\nRIFIUTA:  " + link("rifiuta") + "\n(si apre una pagina di conferma)\n\n" : "") +
+          "Oppure dalla app: Gestione → Richieste. Vale il primo gestore che risponde. Senza risposta entro le " + c.approvazioniFino + " la richiesta scade e il pasto resta.\n" +
+          "Se approvi, ricorda di inviare alla mensa l'ordine aggiornato.\n" + (env.appUrl || "");
+      };
+      // un'email per gestore con il suo link personale (così si sa chi ha approvato)
+      var gest = S.rows("utenti").filter(function (x) { return isAddetto(x) && x.stato === "attivo" && x.notifiche && x.email; });
+      gest.forEach(function (g) { manda(g.email, ogg, corpo("&g=" + g.id + "&k=" + firmaLink(r, g.id)), null, "richiesta"); });
+      var extra = emailAddetti().filter(function (e) { return !gest.some(function (g) { return g.email === e; }); });
+      if (extra.length) manda(extra, ogg, corpo("&k=" + r.chiave), null, "richiesta");
+      S.update("richieste", "id", r.id, { notificata: true });
+    }
+    function esitoRichiesta(id, esito, motivo, chi) {
+      var c = cfg(), r = S.rows("richieste").filter(function (x) { return x.id === id; })[0];
+      if (!r) throw err("dati", "Richiesta non trovata.");
+      if (r.stato !== "attesa") throw err("gestita", r.stato === "scaduta" ? "Richiesta scaduta alle " + c.approvazioniFino + ": il pasto è rimasto." :
+        "Richiesta già " + ({ approvata: "approvata", rifiutata: "rifiutata", ritirata: "ritirata" }[r.stato] || r.stato) + (r.gestitoDa ? " da " + r.gestitoDa + " il " + tsIt(r.gestitoIl) : "") + ".");
+      if (passato(now(), scadenzaApprov(r.data, c))) { scadi(r); throw err("gestita", "Richiesta scaduta alle " + c.approvazioniFino + ": il pasto è rimasto."); }
+      var n = now(), out = { richiesta: null, conferma: "" };
+      if (esito === "approva") {
+        var ex = S.rows("ordini").filter(function (o) { return o.id === r.data + "_" + r.uid; })[0];
+        S.update("richieste", "id", id, { stato: "approvata", gestitoDa: chi, gestitoIl: n.ts, motivo: String(motivo || "").slice(0, 200) });
+        if (ex && ex.stato === "ok") applicaAnnulloDaRichiesta(ex, chi);
+        out.conferma = testoConferma(r.username, r.data, r.pasto, chi, n.ts);
+        var e = emailUtente(r.uid);
+        if (e) manda(e, "Mensa – annullamento APPROVATO: " + fraseGiorno(r.data), out.conferma + "\n\n" + (env.appUrl || ""), null, "conferma");
+      } else if (esito === "rifiuta") {
+        S.update("richieste", "id", id, { stato: "rifiutata", gestitoDa: chi, gestitoIl: n.ts, motivo: String(motivo || "").slice(0, 200) });
+        out.conferma = "Ciao " + r.username + ", la tua richiesta di annullamento per " + fraseGiorno(r.data) + " non è stata accettata da " + chi + (motivo ? ": " + motivo : "") + ". Il pasto resta confermato.";
+        var e2 = emailUtente(r.uid);
+        if (e2) manda(e2, "Mensa – annullamento NON accettato: " + fraseGiorno(r.data), out.conferma + "\n\n" + (env.appUrl || ""), null, "conferma");
+      } else throw err("dati", "Esito non valido.");
+      out.richiesta = pubRich(S.rows("richieste").filter(function (x) { return x.id === id; })[0]);
+      return out;
+    }
+    function applicaAnnulloDaRichiesta(ex, chi) {   // come applicaAnnullo, ma la conferma all'utente la manda esitoRichiesta
+      var n = now(), piatti = piattiDel(ex.data);
+      S.update("ordini", "id", ex.id, { stato: "annullato", modificato: n.ts, tardivo: true, annullatoDa: chi, annullatoIl: n.ts });
+      registra_(ex.data, { id: ex.uid, username: ex.username }, "annulla", descr(ex, piatti), "nessun pasto (richiesta approvata da " + chi + ")", true, chi, true);
+    }
+    function scadi(r) {
+      S.update("richieste", "id", r.id, { stato: "scaduta", gestitoIl: now().ts });
+      var e = emailUtente(r.uid);
+      if (e) manda(e, "Mensa – richiesta di annullamento scaduta: " + fraseGiorno(r.data), "Ciao " + r.username + ", la tua richiesta di annullamento per " + fraseGiorno(r.data) +
+        " non è stata gestita entro le " + cfg().approvazioniFino + ": il pasto resta confermato.\n" + (env.appUrl || ""), null, "conferma");
+    }
+    function gestisciRichiesta(u, p) { serve(u, "addetto"); return esitoRichiesta(p.id, p.esito, p.motivo, u.username); }
+    function ritiraRichiesta(u, p) {
+      var r = S.rows("richieste").filter(function (x) { return x.data === p.data && x.uid === u.id && x.stato === "attesa"; })[0];
+      if (!r) throw err("dati", "Nessuna richiesta in attesa.");
+      S.update("richieste", "id", r.id, { stato: "ritirata", gestitoDa: u.username, gestitoIl: now().ts });
+      return { ok: true, settimana: p.conSettimana ? settimana(u, { lunedi: lunedi(p.data) }) : undefined };
+    }
+    function richieste(u, p) {
+      serve(u, "addetto");
+      var oggi = now().date, l = S.rows("richieste").filter(function (r) { return r.stato === "attesa" || r.data >= addDays(oggi, -7); })
+        .sort(function (a, b) { return (a.stato === "attesa" ? 0 : 1) - (b.stato === "attesa" ? 0 : 1) || (a.ts < b.ts ? 1 : -1); });
+      return { richieste: l.map(pubRich), scadenza: cfg().approvazioniFino };
+    }
+    // link dall'email: pagina di conferma (un clic per aprire, un clic per confermare: i controlli antivirus che aprono i link non approvano nulla)
+    function chiDaLink(r, q) {
+      if (q.g) {
+        var g = S.rows("utenti").filter(function (x) { return x.id === q.g; })[0];
+        if (!g || !isAddetto(g) || g.stato !== "attivo" || q.k !== firmaLink(r, g.id)) throw err("dati", "Link non valido.");
+        return g.username;
+      }
+      if (!q.k || q.k !== r.chiave) throw err("dati", "Link non valido.");
+      return "gestore (link email)";
+    }
+    function paginaLink(q) {
+      q = q || {}; _cfg = null;
+      var titolo = "Richiesta di annullamento", corpo = "", base = env.webUrl || "";
+      try {
+        var r = S.rows("richieste").filter(function (x) { return x.id === q.r; })[0];
+        if (!r) throw err("dati", "Richiesta non trovata.");
+        var chi = chiDaLink(r, q), esito = q.a === "rifiuta" ? "rifiuta" : "approva";
+        var info = "<p><b>" + esc(r.username) + "</b> · " + esc(fraseGiorno(r.data)) + "<br>" + esc(r.pasto) + "<br><small>Richiesta del " + esc(tsIt(r.ts)) + "</small></p>";
+        if (q.conferma === "1") {
+          var out = esitoRichiesta(r.id, esito, q.motivo || "", chi);
+          titolo = esito === "approva" ? "✓ Annullamento approvato" : "✗ Richiesta rifiutata";
+          var e = encodeURIComponent;
+          corpo = info + (esito === "approva" ? '<p class="w">⚠ Ricorda di inviare alla mensa l\'ordine aggiornato (dalla app: Gestione → Riepilogo → Giorno).</p>' : "") +
+            "<p>Risposta da mandare a " + esc(r.username) + (emailUtente(r.uid) ? " (l'email gli è già arrivata)" : "") + ":</p><pre>" + esc(out.conferma) + "</pre>" +
+            '<p><a class="b" target="_top" href="https://wa.me/?text=' + e(out.conferma) + '">WhatsApp</a> <a class="b" target="_top" href="mailto:?subject=' + e("Mensa Omet") + "&body=" + e(out.conferma) + '">Email</a>' +
+            (env.appUrl ? ' <a class="b" target="_top" href="' + esc(env.appUrl) + '">Apri la app</a>' : "") + "</p>";
+        } else {
+          if (r.stato !== "attesa") esitoRichiesta(r.id, esito, "", chi);   // mostra già gestita / scaduta
+          if (passato(now(), scadenzaApprov(r.data, cfg()))) esitoRichiesta(r.id, esito, "", chi);
+          titolo = esito === "approva" ? "Approvare l'annullamento?" : "Rifiutare la richiesta?";
+          corpo = info + '<form method="get" action="' + esc(base) + '" target="_top">' +
+            ["r", "g", "k", "a"].map(function (n) { return q[n] ? '<input type="hidden" name="' + n + '" value="' + esc(q[n]) + '">' : ""; }).join("") +
+            '<input type="hidden" name="conferma" value="1">' +
+            (esito === "rifiuta" ? '<p><label>Motivo (facoltativo)<br><input name="motivo" maxlength="200" style="width:100%;padding:8px;font-size:16px"></label></p>' : "") +
+            '<p><button class="b' + (esito === "rifiuta" ? " r" : "") + '" type="submit">' + (esito === "approva" ? "✓ Sì, approva" : "✗ Sì, rifiuta") + "</button></p></form>" +
+            "<p><small>Rispondi come: " + esc(chi) + ". Vale il primo gestore che risponde.</small></p>";
+        }
+      } catch (x) {
+        titolo = "Non fatto"; corpo = "<p>" + esc(x.message || String(x)) + "</p>" + (env.appUrl ? '<p><a class="b" target="_top" href="' + esc(env.appUrl) + '">Apri la app</a></p>' : "");
+      }
+      return '<!doctype html><html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Mensa Omet</title><style>' +
+        'body{font-family:Segoe UI,Arial,sans-serif;color:#1B2430;margin:0;background:#F4F6F9}.h{background:#093E83;color:#fff;padding:14px 18px;font-size:12px;letter-spacing:.1em}' +
+        '.c{max-width:520px;margin:18px auto;background:#fff;border:1px solid #D7DEE8;border-radius:10px;padding:18px}h1{font-size:20px;margin:0 0 10px;color:#093E83}' +
+        'pre{white-space:pre-wrap;background:#EEF3F9;padding:10px;border-radius:6px;font-family:inherit}.b{display:inline-block;background:#093E83;color:#fff;border:0;border-radius:8px;padding:12px 18px;font-size:16px;text-decoration:none;cursor:pointer;margin:2px 0}' +
+        '.b.r{background:#C62828}.w{background:#FFF3C4;border-left:4px solid #E0B400;padding:8px 10px}small{color:#5D6B7C}</style></head><body><div class="h">OMET FOODTECH · MENSA ' + VERSIONE + '</div><div class="c"><h1>' + esc(titolo) + "</h1>" + corpo + "</div></body></html>";
+    }
+
+    /* ---------- invio alla mensa: tracciato; avviso finché il totale cambiato non è stato inviato ---------- */
+    var MODI_INVIO = /^(app|whatsapp|copia|segnato)/;
+    function statoInvio(day) {
+      var cambi = S.rows("registro").filter(function (r) { return r.data === day && r.dopoChiusura; }).map(function (r) { return r.ts; }).sort();
+      var invii = S.rows("invii").filter(function (i) { return i.data === day && MODI_INVIO.test(i.modo || ""); }).map(function (i) { return i.ts; }).sort();
+      var uc = cambi[cambi.length - 1] || "", ui = invii[invii.length - 1] || "";
+      return { ultimoCambio: uc, ultimoInvio: ui, daInviare: !!uc && (!ui || uc > ui) };
+    }
+    function storico(day) {
+      var ev = [];
+      S.rows("richieste").filter(function (r) { return r.data === day; }).forEach(function (r) {
+        ev.push({ ts: r.ts, cosa: "Richiesta di annullamento", chi: r.username, det: r.pasto });
+        if (r.stato !== "attesa") ev.push({ ts: r.gestitoIl || r.ts, cosa: { approvata: "Richiesta APPROVATA", rifiutata: "Richiesta RIFIUTATA", scaduta: "Richiesta SCADUTA (pasto confermato)", ritirata: "Richiesta ritirata" }[r.stato] || r.stato,
+          chi: r.stato === "scaduta" ? "sistema" : r.gestitoDa, det: r.username + (r.motivo ? " – " + r.motivo : "") });
+      });
+      S.rows("registro").filter(function (r) { return r.data === day && r.dopoChiusura && r.dopo.indexOf("richiesta approvata") < 0; }).forEach(function (r) {
+        ev.push({ ts: r.ts, cosa: { annulla: "Annullato", modifica: "Modificato", prenota: "Pasto aggiunto", ripristina: "Pasto aggiunto" }[r.azione] + (r.da !== r.username ? " da gestore" : ""), chi: r.da, det: r.username + ": " + r.prima + " → " + r.dopo });
+      });
+      S.rows("invii").filter(function (i) { return i.data === day; }).forEach(function (i) {
+        ev.push({ ts: i.ts, cosa: MODI_INVIO.test(i.modo || "") ? "Inviato alla mensa (" + i.modo.replace("segnato", "segnato a mano") + ")" : "Email ai gestori (" + i.modo + ")", chi: i.da, det: i.pasti + (i.pasti === 1 ? " pasto" : " pasti") });
+      });
+      S.rows("comunicati").filter(function (r) { return r.data === day && r.motivo === "variazione"; }).forEach(function (r) {
+        ev.push({ ts: r.ts, cosa: "Email variazione ai gestori", chi: "sistema", det: ((r.conteggi || {}).pasti || 0) + " pasti" });
+      });
+      return ev.sort(function (a, b) { return a.ts < b.ts ? -1 : 1; });
+    }
+
     function registra_(day, dest, azione, prima, dopo, entro, da, dopoChiusura) {
       S.insert("registro", { ts: now().ts, data: day, uid: dest.id, username: dest.username, azione: azione, prima: prima, dopo: dopo, entroLimite: entro, da: da,
         dopoInvio: !!dopoChiusura, dopoChiusura: !!dopoChiusura, notificato: !dopoChiusura });   // dopo la chiusura: in coda per l'email di variazione
@@ -367,12 +570,12 @@ var MensaCore = (function () {
 
     /* ---------- conteggi e testi per il fornitore ---------- */
     function conteggi(day) {
-      var k = { pasti: 0, cod: {}, acqua: { N: 0, G: 0 }, ospiti: 0 };
+      var cv = cfg().varianti, k = { pasti: 0, cod: {}, acqua: { N: 0, G: 0 }, ospiti: 0 };
       S.rows("ordini").forEach(function (o) {
         if (o.data !== day || o.stato !== "ok") return;
         k.pasti++; if (o.ospite) k.ospiti++;
         k.acqua[o.acqua === "G" ? "G" : "N"]++;
-        splitCodes(o.scelte).forEach(function (c) { k.cod[c] = (k.cod[c] || 0) + 1; });
+        splitCodes(o.scelte).forEach(function (t) { t = canon(t, cv); k.cod[t] = (k.cod[t] || 0) + 1; });
       });
       return k;
     }
@@ -381,46 +584,45 @@ var MensaCore = (function () {
     }
     function differenze(prima, ora, piatti) {
       if (!prima) return "";
+      var cv = cfg().varianti, pc = {};
+      Object.keys(prima.cod || {}).forEach(function (t) { var k = canon(t, cv); pc[k] = (pc[k] || 0) + prima.cod[t]; });
       var parti = [], dp = ora.pasti - prima.pasti;
-      var codes = uniq(Object.keys(prima.cod || {}).concat(Object.keys(ora.cod)));
-      codes.sort(function (a, b) { return piatti.findIndex(function (x) { return x.c === a; }) - piatti.findIndex(function (x) { return x.c === b; }); });
-      codes.forEach(function (c) { var d = (ora.cod[c] || 0) - ((prima.cod || {})[c] || 0); if (d) parti.push(c + " " + (d > 0 ? "+" : "−") + Math.abs(d)); });
-      ["N", "G"].forEach(function (a) { var d = ora.acqua[a] - ((prima.acqua || {})[a] || 0); if (d) parti.push("acqua " + (a === "N" ? "nat." : "gass.") + " " + (d > 0 ? "+" : "−") + Math.abs(d)); });
+      ordinaTok(piatti, uniq(Object.keys(pc).concat(Object.keys(ora.cod)))).forEach(function (t) {
+        var d = (ora.cod[t] || 0) - (pc[t] || 0); if (d) parti.push(breve(t, cv) + " " + (d > 0 ? "+" : "−") + Math.abs(d)); });
+      ["N", "G"].forEach(function (a) { var d = ora.acqua[a] - ((prima.acqua || {})[a] || 0); if (d) parti.push("acqua " + (a === "N" ? "naturale" : "gassata") + " " + (d > 0 ? "+" : "−") + Math.abs(d)); });
       if (!dp && !parti.length) return "nessuna differenza";
       return (dp ? (dp > 0 ? "+" : "−") + Math.abs(dp) + (Math.abs(dp) === 1 ? " pasto" : " pasti") : "stessi pasti") + (parti.length ? " (" + parti.join(", ") + ")" : "");
     }
-    function bloccoGiorno(day, k, piatti, wa) {   // testo per il fornitore di un giorno
+    function pl(n, a, b) { return n + " " + (n === 1 ? a : b); }
+    function bloccoGiorno(day, k, piatti, wa) {   // testo per la mensa di un giorno: solo totali
       var B = wa ? "*" : "", I = wa ? "_" : "";
-      var t = B + cap(giornoL(day)) + " " + it(day) + B + " – pasti: " + B + k.pasti + B + (k.ospiti ? " (di cui ospiti " + k.ospiti + ")" : "") + "\n";
+      var t = B + cap(giornoL(day)) + " " + it(day) + B + " – " + B + pl(k.pasti, "pasto", "pasti") + B + (k.ospiti ? " (di cui ospiti " + k.ospiti + ")" : "") + "\n";
       if (!k.pasti) return t;
+      var rr = righeConteggio(piatti, k.cod, true);
       CATS.forEach(function (cc) {
-        var r = piatti.filter(function (x) { return x.cat === cc[0] && k.cod[x.c]; }).map(function (x) { return x.c + " " + cap(x.n) + ": " + B + k.cod[x.c] + B; });
+        var r = rr.filter(function (x) { return x.gruppo === cc[0]; }).map(function (x) { return x.c + " " + x.label + ": " + B + x.n + B; });
         if (r.length) t += I + cc[1] + I + "\n" + r.join("\n") + "\n";
       });
       t += I + "Acqua" + I + "\nNaturale: " + B + k.acqua.N + B + "\nGassata: " + B + k.acqua.G + B + "\n";
       return t;
     }
-    function noteGiorno(day) {
-      return S.rows("ordini").filter(function (o) { return o.data === day && o.stato === "ok" && o.nota; }).map(function (o) { return o.username + ": " + o.nota; });
-    }
     function nominativo(day) {
+      var p = piattiDel(day);
       return S.rows("ordini").filter(function (o) { return o.data === day && o.stato === "ok"; }).sort(function (a, b) { return a.username.localeCompare(b.username); })
-        .map(function (o) { return o.username + ": " + o.scelte + " · " + (o.acqua || "N"); });
+        .map(function (o) { return o.username + ": " + splitCodes(o.scelte).map(function (t) { return breve(t); }).join(", ") + " · acqua " + (o.acqua === "G" ? "gassata" : "naturale"); });
     }
     function testoGiorno(day, wa, intest) {
       var c = cfg(), piatti = piattiDel(day), k = conteggi(day);
       var t = (wa ? "*OMET – " + (intest || "ORDINE MENSA") + "*\n" : "OMET – " + (intest || "ORDINE MENSA") + "\n") + bloccoGiorno(day, k, piatti, wa);
-      var nt = noteGiorno(day); if (nt.length) t += (wa ? "_Note_" : "Note") + "\n" + nt.join("\n") + "\n";
       if (c.nominativoWhatsApp) t += (wa ? "_Nominativo_" : "Nominativo") + "\n" + nominativo(day).join("\n") + "\n";
       return t;
     }
     function testoSettimana(lun, wa) {
       var c = cfg(), giorni = giorniSettimana(lun);
       var t = (wa ? "*OMET – ORDINE MENSA settimana " + periodo(lun) + "*\n" : "OMET – ORDINE MENSA settimana " + periodo(lun) + "\n");
-      t += "Totale pasti: " + (wa ? "*" : "") + giorni.reduce(function (s, d) { return s + conteggi(d).pasti; }, 0) + (wa ? "*" : "") + "\n";
+      t += "Totale: " + (wa ? "*" : "") + pl(giorni.reduce(function (s, d) { return s + conteggi(d).pasti; }, 0), "pasto", "pasti") + (wa ? "*" : "") + "\n";
       giorni.forEach(function (d) {
         t += "\n" + bloccoGiorno(d, conteggi(d), piattiDel(d), wa);
-        var nt = noteGiorno(d); if (nt.length) t += (wa ? "_Note_" : "Note") + "\n" + nt.join("\n") + "\n";
         if (c.nominativoWhatsApp) t += (wa ? "_Nominativo_" : "Nominativo") + "\n" + nominativo(d).join("\n") + "\n";
       });
       return t;
@@ -430,84 +632,123 @@ var MensaCore = (function () {
       return Object.keys(g).sort();
     }
 
-    /* ---------- documenti stampabili (HTML: lo converte anche Google Drive) ---------- */
-    var B_ = "#093E83", L_ = "#D7DEE8", BAND_ = "#EEF3F9";
-    var TD = "border:1px solid " + L_ + ";padding:3px 5px;font-size:10px;";
-    var TH = TD + "background:" + B_ + ";color:#fff;font-weight:600;";
-    function testata(titolo) {
-      return '<table style="width:100%;border-collapse:collapse;margin-bottom:8px"><tr><td style="background:' + B_ + ';color:#fff;padding:7px 10px;font-size:10px;letter-spacing:.08em">OMET FOODTECH · MENSA</td>' +
-        '<td style="background:' + B_ + ';color:#fff;padding:7px 10px;font-size:15px;font-weight:600;text-align:right">' + esc(titolo) + "</td></tr></table>";
+    /* ---------- documenti stampabili (HTML a tabelle: lo converte anche Google Drive) ----------
+       - ordine settimanale per la mensa: un giorno per colonna, solo totali
+       - ordine del giorno per la mensa: solo totali (anche per le variazioni)
+       - ordine del giorno interno: totali + elenco nominativo, una riga per persona */
+    var B_ = "#093E83", L_ = "#D7DEE8", BAND_ = "#EEF3F9", MUTE_ = "#5D6B7C";
+    var FONT = "font-family:Segoe UI,Arial,sans-serif;color:#1B2430;";
+    var SING = ["PRIMO", "SECONDO", "CONTORNO, FRUTTA O DOLCE"];
+    var TD = "border-bottom:1px solid " + L_ + ";padding:5px 8px;font-size:12px;vertical-align:top;";
+    var TH = "background:" + B_ + ";color:#fff;font-weight:600;padding:6px 8px;font-size:11px;letter-spacing:.06em;text-align:left;";
+    function testata(sopra, titolo, sotto) {
+      return '<table style="width:100%;border-collapse:collapse;margin-bottom:12px"><tr>' +
+        '<td style="background:' + B_ + ';color:#fff;padding:10px 12px;font-size:10px;letter-spacing:.1em;vertical-align:middle">OMET FOODTECH · MENSA<br><span style="font-size:11px;letter-spacing:.04em;opacity:.85">' + esc(sopra || "") + "</span></td>" +
+        '<td style="background:' + B_ + ';color:#fff;padding:10px 12px;text-align:right;vertical-align:middle"><span style="font-size:18px;font-weight:600">' + esc(titolo) + "</span>" +
+        (sotto ? '<br><span style="font-size:11px;opacity:.85">' + esc(sotto) + "</span>" : "") + "</td></tr></table>";
+    }
+    function riquadri(voci) {   // numeri grandi tutti allineati: etichetta sopra, valore sotto, stessa larghezza
+      var w = Math.floor(100 / voci.length);
+      return '<table style="width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:10px"><tr>' + voci.map(function (v) {
+        return '<td style="width:' + w + '%;border:1px solid ' + L_ + ';border-top:4px solid ' + (v[2] || B_) + ';padding:6px 10px;vertical-align:top">' +
+          '<div style="font-size:10px;letter-spacing:.08em;color:' + MUTE_ + ';text-transform:uppercase">' + esc(v[0]) + '</div><div style="font-size:22px;font-weight:700;line-height:1.15">' + esc(String(v[1])) + "</div></td>"; }).join("") + "</tr></table>";
+    }
+    function tabTotali(piatti, k) {   // tre colonne: primi, secondi, contorno/frutta/dolce – solo i piatti ordinati
+      var rr = righeConteggio(piatti, k.cod, true);
+      var h = '<table style="width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:14px"><tr>';
+      CATS.forEach(function (cc, i) {
+        var l = rr.filter(function (x) { return x.gruppo === cc[0]; });
+        h += '<td style="vertical-align:top;' + (i ? "padding-left:10px;" : "") + '"><table style="width:100%;border-collapse:collapse"><tr><th colspan="3" style="' + TH + '">' + cc[1].toUpperCase() + "</th></tr>" +
+          (l.length ? l.map(function (x) { return '<tr><td style="' + TD + 'width:22px;font-family:Consolas,monospace;font-weight:700;color:' + B_ + '">' + esc(x.c) + '</td><td style="' + TD + '">' + esc(x.label) +
+            '</td><td style="' + TD + 'width:34px;text-align:right;font-size:15px;font-weight:700">' + x.n + "</td></tr>"; }).join("")
+            : '<tr><td colspan="3" style="' + TD + 'color:' + MUTE_ + '">nessuno</td></tr>') + "</table></td>";
+      });
+      return h + "</tr></table>";
     }
     function piede(stamp) {
-      return '<p style="font-size:9px;color:#5D6B7C;border-top:1px solid ' + L_ + ';padding-top:4px;margin-top:12px">Omet Foodtech · Mensa ' + VERSIONE + " del " + DATA_VERSIONE + " · " + esc(stamp || "") + "</p>";
+      return '<p style="font-size:9px;color:' + MUTE_ + ';border-top:1px solid ' + L_ + ';padding-top:4px;margin:8px 0 0">Omet Foodtech · Mensa ' + VERSIONE + " del " + DATA_VERSIONE + " · " + esc(stamp || "") + "</p>";
     }
-    function htmlRiepilogo(day, stamp, titolo) {   // un giorno: totali + foglio nominativo
-      var c = cfg(), piatti = piattiDel(day), k = conteggi(day);
-      var ok = S.rows("ordini").filter(function (o) { return o.data === day && o.stato === "ok"; }).map(pubOrd).sort(function (a, b) { return (a.ospite - b.ospite) || a.username.localeCompare(b.username); });
-      var ann = S.rows("ordini").filter(function (o) { return o.data === day && o.stato === "annullato"; }).map(pubOrd);
-      var h = '<div class="foglio" style="font-family:Segoe UI,Arial,sans-serif;color:#1B2430;">' + testata((titolo || "Ordine") + " " + giornoL(day) + " " + it(day));
-      h += '<table style="border-collapse:collapse;margin-bottom:8px"><tr>' +
-        [["PASTI", k.pasti], k.ospiti ? ["DI CUI OSPITI", k.ospiti] : null, ["ACQUA NAT. / GASS.", k.acqua.N + " / " + k.acqua.G], ["ANNULLATI", ann.length]].filter(Boolean)
-          .map(function (x) { return '<td style="padding:2px 18px 2px 0;font-size:10px;color:#5D6B7C">' + x[0] + '<br><b style="font-size:20px;color:#1B2430">' + x[1] + "</b></td>"; }).join("") + "</tr></table>";
-      h += '<table style="width:100%;border-collapse:collapse;margin-bottom:10px"><tr>';
-      CATS.forEach(function (cc) {
-        h += '<td style="vertical-align:top;padding-right:8px;width:25%"><table style="width:100%;border-collapse:collapse"><tr><th colspan="3" style="' + TH + 'text-align:left">' + cc[1].toUpperCase() + "</th></tr>";
-        piatti.filter(function (x) { return x.cat === cc[0]; }).forEach(function (x) {
-          var n = k.cod[x.c] || 0;
-          h += '<tr><td style="' + TD + 'font-family:Consolas,monospace;font-weight:700;color:' + B_ + ';width:16px">' + esc(x.c) + '</td><td style="' + TD + '">' + esc(cap(x.n)) +
-            '</td><td style="' + TD + 'text-align:right;font-weight:700;width:22px;' + (n ? "" : "color:#AEB6C4;") + '">' + (n || "–") + "</td></tr>";
-        });
-        h += "</table></td>";
-      });
-      h += "</tr></table>";
-      var codes = piatti.map(function (x) { return x.c; });
-      h += '<table style="width:100%;border-collapse:collapse"><tr><th style="' + TH + 'text-align:left">NOMINATIVO</th>' + codes.map(function (x) { return '<th style="' + TH + 'text-align:center;padding:3px 2px">' + esc(x) + "</th>"; }).join("") +
-        '<th style="' + TH + '">ACQUA</th><th style="' + TH + 'text-align:left">NOTE</th></tr>';
-      ok.forEach(function (o, i) {
-        var bg = i % 2 ? "background:" + BAND_ + ";" : "";
-        h += '<tr><td style="' + TD + bg + 'white-space:nowrap">' + esc(o.username) + (o.inseritoDa ? ' <span style="color:#C76A00">(' + (o.ospite ? "ospite, " : "") + "ins. " + esc(o.inseritoDa) + ")</span>" : "") + "</td>" +
-          codes.map(function (x) { return '<td style="' + TD + bg + 'text-align:center;padding:3px 2px;font-weight:700">' + (o.scelte.indexOf(x) >= 0 ? "X" : "") + "</td>"; }).join("") +
-          '<td style="' + TD + bg + 'text-align:center">' + (o.acqua || "N") + '</td><td style="' + TD + bg + '">' + esc(o.nota) + "</td></tr>";
-      });
-      h += '<tr><td style="' + TD + 'font-weight:700;background:' + BAND_ + '">TOTALE</td>' + codes.map(function (x) { return '<td style="' + TD + 'text-align:center;padding:3px 2px;font-weight:700;background:' + BAND_ + '">' + (k.cod[x] || "") + "</td>"; }).join("") +
-        '<td style="' + TD + 'text-align:center;font-weight:700;background:' + BAND_ + '">' + k.acqua.N + "N " + k.acqua.G + 'G</td><td style="' + TD + "background:" + BAND_ + '"></td></tr></table>';
-      if (ann.length) h += '<p style="font-size:9px;color:#5D6B7C;margin:6px 0 0">Annullati: ' + ann.map(function (o) { return esc(o.username) + (o.tardivo ? " (dopo la chiusura)" : ""); }).join(", ") + "</p>";
+    function htmlMensaGiorno(day, stamp, variazione) {   // per la mensa: solo totali
+      var piatti = piattiDel(day), k = conteggi(day), prima = variazione ? ultimoComunicato(day) : null;
+      var h = '<div class="foglio" style="' + FONT + '">' + testata(variazione ? "Ordine per la mensa · sostituisce il totale precedente" : "Ordine per la mensa", (variazione ? "VARIAZIONE · " : "") + cap(giornoL(day)) + " " + it(day), variazione ? "Modifica del " + tsIt(now().ts) : "");
+      h += riquadri([["Pasti", k.pasti], ["Acqua naturale", k.acqua.N], ["Acqua gassata", k.acqua.G]]);
+      h += tabTotali(piatti, k);
+      if (variazione && prima) h += '<p style="font-size:12px;margin:0;padding:8px 10px;background:#FFF3C4;border-left:4px solid #E0B400">Rispetto al totale comunicato il ' + esc(tsIt(prima.ts)) + ": <b>" + esc(differenze(prima.conteggi, k, piatti)) + "</b></p>";
       return h + piede(stamp) + "</div>";
     }
-    function htmlSettimana(lun, stamp) {   // ordine per il fornitore: un giorno per colonna, solo totali
-      var giorni = giorniSettimana(lun), tot = 0;
-      var cols = giorni.map(function (d) { var k = conteggi(d); tot += k.pasti; return { d: d, k: k, p: piattiDel(d) }; });
-      var h = '<div class="foglio" style="font-family:Segoe UI,Arial,sans-serif;color:#1B2430;">' + testata("Ordine mensa settimana " + periodo(lun)) +
-        '<p style="font-size:11px;margin:0 0 8px">Totale pasti della settimana: <b style="font-size:16px">' + tot + "</b></p>";
-      h += '<table style="width:100%;border-collapse:collapse;table-layout:fixed"><tr>' + cols.map(function (x) {
-        return '<th style="' + TH + 'font-size:11px;text-align:left">' + esc(cap(giornoL(x.d))) + " " + it(x.d).slice(0, 5) + '<span style="float:right">' + x.k.pasti + (x.k.pasti === 1 ? " pasto" : " pasti") + "</span></th>"; }).join("") + "</tr><tr>";
-      cols.forEach(function (x) {
-        var cell = '<table style="width:100%;border-collapse:collapse">';
-        CATS.forEach(function (cc) {
-          var rr = x.p.filter(function (y) { return y.cat === cc[0]; });
-          if (!rr.length) return;
-          cell += '<tr><td colspan="3" style="' + TD + 'background:' + BAND_ + ';font-weight:600;font-size:9px;letter-spacing:.06em">' + cc[1].toUpperCase() + "</td></tr>";
-          rr.forEach(function (y) { var n = x.k.cod[y.c] || 0;
-            cell += '<tr><td style="' + TD + 'font-family:Consolas,monospace;font-weight:700;color:' + B_ + ';width:14px">' + esc(y.c) + '</td><td style="' + TD + (n ? "" : "color:#AEB6C4;") + '">' + esc(cap(y.n)) +
-              '</td><td style="' + TD + 'text-align:right;font-weight:700;width:20px;' + (n ? "" : "color:#AEB6C4;") + '">' + (n || "–") + "</td></tr>"; });
-        });
-        cell += '<tr><td colspan="2" style="' + TD + 'background:' + BAND_ + ';font-weight:600">Acqua nat. / gass.</td><td style="' + TD + 'background:' + BAND_ + ';text-align:right;font-weight:700;white-space:nowrap">' + x.k.acqua.N + "/" + x.k.acqua.G + "</td></tr>";
-        var nt = noteGiorno(x.d);
-        if (nt.length) cell += '<tr><td colspan="3" style="' + TD + 'font-size:9px">Note: ' + nt.map(esc).join("; ") + "</td></tr>";
-        h += '<td style="vertical-align:top;padding:0 3px 0 0">' + cell + "</table></td>";
+    function htmlRiepilogo(day, stamp) {   // interno: totali + una riga per persona
+      var piatti = piattiDel(day), k = conteggi(day);
+      var ok = S.rows("ordini").filter(function (o) { return o.data === day && o.stato === "ok"; }).map(pubOrd).sort(function (a, b) { return (a.ospite - b.ospite) || a.username.localeCompare(b.username); });
+      var ann = S.rows("ordini").filter(function (o) { return o.data === day && o.stato === "annullato"; }).map(pubOrd);
+      var h = '<div class="foglio" style="' + FONT + '">' + testata("Uso interno – con i nomi", "Ordine " + giornoL(day) + " " + it(day));
+      h += riquadri([["Pasti", k.pasti]].concat(k.ospiti ? [["Di cui ospiti", k.ospiti]] : []).concat([["Acqua naturale", k.acqua.N], ["Acqua gassata", k.acqua.G], ["Annullati", ann.length, ann.length ? "#E0B400" : null]]));
+      h += tabTotali(piatti, k);
+      h += '<table style="width:100%;border-collapse:collapse"><tr><th style="' + TH + 'width:20%">NOME</th>' + SING.map(function (x) { return '<th style="' + TH + '">' + x + "</th>"; }).join("") + '<th style="' + TH + 'width:11%">ACQUA</th></tr>';
+      ok.forEach(function (o, i) {
+        var g = sceltePerGruppo(piatti, o.scelte), bg = i % 2 ? "background:" + BAND_ + ";" : "";
+        h += '<tr><td style="' + TD + bg + 'font-weight:600">' + esc(o.username) + (o.inseritoDa ? '<br><span style="font-weight:400;font-size:10px;color:#C76A00">' + (o.ospite ? "ospite · " : "") + "inserito da " + esc(o.inseritoDa) + "</span>" : "") + "</td>" +
+          CATS.map(function (cc) { return '<td style="' + TD + bg + '">' + (esc(g[cc[0]]) || '<span style="color:#AEB6C4">—</span>') + "</td>"; }).join("") +
+          '<td style="' + TD + bg + '">' + (o.acqua === "G" ? "gassata" : "naturale") + "</td></tr>";
       });
-      return h + "</tr></table>" + piede(stamp) + "</div>";
+      if (!ok.length) h += '<tr><td colspan="5" style="' + TD + 'color:' + MUTE_ + '">Nessun pasto prenotato.</td></tr>';
+      h += "</table>";
+      if (ann.length) h += '<p style="font-size:10px;color:' + MUTE_ + ';margin:8px 0 0">Annullati: ' + ann.map(function (o) { return esc(o.username) + (o.tardivo ? " (dopo l'invio" + (o.annullatoDa ? ", da " + esc(o.annullatoDa) + " " + esc(tsIt(o.annullatoIl).replace(" ore ", " alle ")) : "") + ")" : ""); }).join(", ") + "</p>";
+      return h + piede(stamp) + "</div>";
+    }
+    var TW = "border-bottom:1px solid " + L_ + ";font-size:10.5px;padding:2px 4px;line-height:1.3;vertical-align:top";
+    var TN = TW + ";text-align:right;font-weight:700;width:20px;font-size:12px";
+    function listaGruppo(l) {
+      if (!l.length) return '<span style="color:#AEB6C4">—</span>';
+      return '<table style="width:100%;border-collapse:collapse">' + l.map(function (y) { return '<tr><td style="' + TW + '"><b style="font-family:Consolas,monospace;color:' + B_ + '">' + esc(y.c) + "</b> " + esc(y.label) + '</td><td style="' + TN + '">' + y.n + "</td></tr>"; }).join("") + "</table>";
+    }
+    function htmlSettimana(lun, stamp) {   // ordine settimanale per la mensa, A4 verticale: una riga per giorno (come il menu della mensa)
+      var giorni = giorniSettimana(lun), tot = 0, nat = 0, gas = 0;
+      var righe = giorni.map(function (d) { var k = conteggi(d); tot += k.pasti; nat += k.acqua.N; gas += k.acqua.G; return { d: d, k: k, p: piattiDel(d) }; });
+      var note = (S.rows("menuNote").filter(function (r) { return r.lunedi === lun; })[0] || {}).note || "";
+      var TC = "border:1px solid " + L_ + ";padding:4px 5px;vertical-align:top;";
+      var h = '<div class="foglio" style="' + FONT + '">' + testata("Ordine per la mensa", "Settimana " + periodo(lun) + " " + lun.slice(0, 4));
+      h += riquadri([["Pasti della settimana", tot], ["Acqua naturale", nat], ["Acqua gassata", gas]]);
+      h += '<table style="width:100%;border-collapse:collapse;table-layout:fixed"><tr><th style="' + TH + 'width:15%">GIORNO</th><th style="' + TH + 'width:27%">PRIMI</th><th style="' + TH + 'width:27%">SECONDI</th><th style="' + TH + '">CONTORNO, FRUTTA O DOLCE</th></tr>';
+      righe.forEach(function (x, i) {
+        var rr = righeConteggio(x.p, x.k.cod, true), bg = i % 2 ? "background:#FAFBFD;" : "";
+        h += '<tr style="page-break-inside:avoid"><td style="' + TC + bg + '"><div style="font-size:13px;font-weight:700">' + esc(cap(giornoL(x.d))) + '</div><div style="font-size:11px">' + it(x.d) + "</div>" +
+          '<div style="font-size:20px;font-weight:700;color:' + B_ + ';margin-top:4px">' + x.k.pasti + '</div><div style="font-size:9px;letter-spacing:.06em;color:' + MUTE_ + '">' + (x.k.pasti === 1 ? "PASTO" : "PASTI") + "</div>" +
+          '<div style="font-size:10px;margin-top:5px;color:' + MUTE_ + '">Acqua nat. <b style="color:#1B2430">' + x.k.acqua.N + "</b><br>Acqua gas. <b style=\"color:#1B2430\">" + x.k.acqua.G + "</b></div></td>" +
+          CATS.map(function (cc) { return '<td style="' + TC + bg + '">' + listaGruppo(rr.filter(function (y) { return y.gruppo === cc[0]; })) + "</td>"; }).join("") + "</tr>";
+      });
+      if (!righe.length) h += '<tr><td colspan="4" style="' + TC + 'color:' + MUTE_ + '">Nessun menu caricato per questa settimana.</td></tr>';
+      h += "</table>";
+      if (note) h += '<p style="font-size:10px;color:' + MUTE_ + ';margin:8px 0 0;white-space:pre-wrap"><b>Note del menu:</b> ' + esc(note) + "</p>";
+      return h + piede(stamp) + "</div>";
+    }
+    // foglio di controllo consegna (stampa ~11:00): ordine per la mensa + riquadro da compilare a mano
+    function htmlControllo(day, stamp) {
+      var piatti = piattiDel(day), k = conteggi(day), si = statoInvio(day);
+      var h = '<div class="foglio" style="' + FONT + '">' + testata("Controllo consegna · da allegare ai documenti della mensa", "Controllo " + cap(giornoL(day)) + " " + it(day), "Totale aggiornato alle " + tsIt(now().ts).slice(11));
+      h += riquadri([["Pasti ordinati", k.pasti], ["Acqua naturale", k.acqua.N], ["Acqua gassata", k.acqua.G]]);
+      h += tabTotali(piatti, k);
+      h += '<p style="font-size:11px;margin:0 0 10px;padding:6px 10px;' + (si.daInviare ? "background:#FFF3C4;border-left:4px solid #E0B400" : "background:" + BAND_ + ";border-left:4px solid " + B_) + '">' +
+        (si.daInviare ? "<b>Attenzione:</b> l'ordine aggiornato (variazione del " + esc(tsIt(si.ultimoCambio)) + ") non risulta ancora inviato alla mensa." :
+          si.ultimoInvio ? "Ultimo invio alla mensa registrato: " + esc(tsIt(si.ultimoInvio)) + "." : "Vale l'ordine settimanale inviato alla chiusura.") + "</p>";
+      var R = "border:1px solid #1B2430;padding:10px 12px;font-size:12px;vertical-align:top;";
+      var box = '<span style="display:inline-block;width:13px;height:13px;border:1.5px solid #1B2430;vertical-align:-2px;margin:0 4px 0 14px"></span>';
+      h += '<table style="width:100%;border-collapse:collapse;page-break-inside:avoid"><tr><th colspan="2" style="' + TH + '">CONTROLLO ALLA CONSEGNA (da compilare a mano)</th></tr>' +
+        '<tr><td style="' + R + 'width:50%"><b>Consegna conforme all\'ordine?</b><br><br>' + box + "Sì" + box + "No</td>" +
+        '<td style="' + R + '"><b>Se no: pasti consegnati</b><br><br>n. ______________</td></tr>' +
+        '<tr><td colspan="2" style="' + R + 'height:110px"><b>Note / variazioni</b></td></tr>' +
+        '<tr><td style="' + R + 'height:46px"><b>Controllato da</b></td><td style="' + R + '"><b>Firma</b></td></tr></table>';
+      return h + piede(stamp) + "</div>";
     }
     function htmlPersonale(u, lun, stamp) {
       var giorni = giorniSettimana(lun);
-      var h = '<div class="foglio" style="font-family:Segoe UI,Arial,sans-serif;color:#1B2430;">' + testata("I pasti di " + u.username + " · settimana " + periodo(lun)) +
-        '<table style="width:100%;border-collapse:collapse"><tr><th style="' + TH + 'text-align:left;width:22%">GIORNO</th><th style="' + TH + 'text-align:left">PIATTI</th><th style="' + TH + 'width:12%">ACQUA</th></tr>';
+      var h = '<div class="foglio" style="' + FONT + '">' + testata("I miei pasti", u.username, "Settimana " + periodo(lun)) +
+        '<table style="width:100%;border-collapse:collapse"><tr><th style="' + TH + 'width:18%">GIORNO</th>' + SING.map(function (x) { return '<th style="' + TH + '">' + x + "</th>"; }).join("") + '<th style="' + TH + 'width:11%">ACQUA</th></tr>';
       giorni.forEach(function (d, i) {
         var o = S.rows("ordini").filter(function (x) { return x.data === d && x.uid === u.id; })[0], p = piattiDel(d), bg = i % 2 ? "background:" + BAND_ + ";" : "";
-        var ok = o && o.stato === "ok";
-        h += '<tr><td style="' + TD + bg + 'font-size:12px;font-weight:600">' + esc(cap(giornoL(d))) + " " + it(d) + '</td><td style="' + TD + bg + 'font-size:12px">' +
-          (ok ? splitCodes(o.scelte).map(function (c) { return "<b>" + esc(c) + "</b> " + esc(nomePiatto(p, c)); }).join(" · ") + (o.nota ? " <i>(" + esc(o.nota) + ")</i>" : "") : '<span style="color:#6B7785">nessun pasto</span>') +
-          '</td><td style="' + TD + bg + 'font-size:12px;text-align:center">' + (ok ? (o.acqua === "G" ? "gassata" : "naturale") : "") + "</td></tr>";
+        var ok = o && o.stato === "ok", g = ok ? sceltePerGruppo(p, splitCodes(o.scelte)) : null;
+        h += '<tr><td style="' + TD + bg + 'font-weight:600">' + esc(cap(giornoL(d))) + " " + it(d).slice(0, 5) + "</td>" +
+          (ok ? CATS.map(function (cc) { return '<td style="' + TD + bg + '">' + (esc(g[cc[0]]) || '<span style="color:#AEB6C4">—</span>') + "</td>"; }).join("") + '<td style="' + TD + bg + '">' + (o.acqua === "G" ? "gassata" : "naturale") + "</td>"
+            : '<td colspan="4" style="' + TD + bg + 'color:#6B7785">nessun pasto</td>') + "</tr>";
       });
       return h + "</table>" + piede(stamp) + "</div>";
     }
@@ -516,12 +757,12 @@ var MensaCore = (function () {
       var t = "Ciao " + u.username + ",\necco i tuoi pasti della settimana " + periodo(lun) + ":\n\n";
       giorniSettimana(lun).forEach(function (d) {
         var o = S.rows("ordini").filter(function (x) { return x.data === d && x.uid === u.id; })[0], p = piattiDel(d);
-        t += cap(giornoB(d)) + " " + it(d).slice(0, 5) + "  " + (o && o.stato === "ok" ? splitCodes(o.scelte).map(function (x) { return nomePiatto(p, x); }).join(", ") + " · acqua " + (o.acqua === "G" ? "gassata" : "naturale") : "nessun pasto") + "\n";
+        t += cap(giornoB(d)) + " " + it(d).slice(0, 5) + "  " + (o && o.stato === "ok" ? splitCodes(o.scelte).map(function (x) { return nomeTok(p, x); }).join(", ") + " · acqua " + (o.acqua === "G" ? "gassata" : "naturale") : "nessun pasto") + "\n";
       });
       return t + "\nSe non puoi venire, annulla dalla app entro le " + c.cutoff + " del giorno.\n" + (env.appUrl || "");
     }
     function docHtml(body, titolo) {
-      return '<!doctype html><html lang="it"><head><meta charset="utf-8"><title>' + esc(titolo) + '</title><style>@page{size:A4 landscape;margin:10mm}body{margin:0}' +
+      return '<!doctype html><html lang="it"><head><meta charset="utf-8"><title>' + esc(titolo) + '</title><style>@page{size:A4 portrait;margin:10mm}body{margin:0}' +
         ".foglio{page-break-after:always}.foglio:last-child{page-break-after:auto}*{-webkit-print-color-adjust:exact;print-color-adjust:exact}</style></head><body>" + body + "</body></html>";
     }
     function stampa(chi, auto) { return "Stampa del " + tsIt(now().ts) + " · " + (auto ? "generato automaticamente" : "da " + chi); }
@@ -538,16 +779,20 @@ var MensaCore = (function () {
       var senza = S.rows("utenti").filter(function (x) { return x.stato === "attivo" && !tutti.some(function (o) { return o.uid === x.id; }); })
         .map(function (x) { return { id: x.id, username: x.username }; }).sort(function (a, b) { return a.username.localeCompare(b.username); });
       return {
-        data: day, giorno: giornoL(day), piatti: piatti, ok: ok, annullati: ann, conteggi: k.cod, acqua: k.acqua, ospiti: k.ospiti,
+        data: day, giorno: giornoL(day), piatti: piatti, ok: ok.map(function (o) { return Object.assign(o, { gruppi: sceltePerGruppo(piatti, o.scelte) }); }), annullati: ann,
+        conteggi: k.cod, righe: righeConteggio(piatti, k.cod, false), acqua: k.acqua, ospiti: k.ospiti,
         stato: statoGiorno(day, c), cutoff: c.cutoff, registro: reg.slice(0, 200), invii: inv, senzaOrdine: senza,
-        comunicato: ult ? { ts: ult.ts, motivo: ult.motivo, differenze: differenze(ult.conteggi, k, piatti) } : null
+        comunicato: ult ? { ts: ult.ts, motivo: ult.motivo, differenze: differenze(ult.conteggi, k, piatti) } : null,
+        invio: statoInvio(day), storico: storico(day), richieste: S.rows("richieste").filter(function (r) { return r.data === day; }).map(pubRich)
       };
     }
     function riepilogo(u, p) {
       serve(u, "addetto");
       var r = riep(p.data), titolo = "mensa_ordine_" + p.data;
       r.titolo = titolo;
-      r.html = docHtml(htmlRiepilogo(p.data, stampa(u.username)), titolo);
+      r.html = docHtml(htmlRiepilogo(p.data, stampa(u.username)), titolo + "_interno");
+      r.titoloMensa = titolo; r.titolo = titolo + "_interno";
+      r.htmlMensa = docHtml(htmlMensaGiorno(p.data, stampa(u.username)), titolo);
       r.whatsapp = testoGiorno(p.data, true) + "\nInviato da " + u.username + " il " + tsIt(now().ts);
       return r;
     }
@@ -555,7 +800,7 @@ var MensaCore = (function () {
       serve(u, "addetto");
       var lun = p.lunedi, giorni = giorniSettimana(lun), titolo = "mensa_settimana_" + lun;
       return Object.assign(infoSettimana(lun), {
-        giorni: giorni.map(function (d) { var k = conteggi(d); return { data: d, pasti: k.pasti, ospiti: k.ospiti, acqua: k.acqua, cod: k.cod, piatti: piattiDel(d), stato: statoGiorno(d) }; }),
+        giorni: giorni.map(function (d) { var k = conteggi(d), pp = piattiDel(d); return { data: d, pasti: k.pasti, ospiti: k.ospiti, acqua: k.acqua, righe: righeConteggio(pp, k.cod, true), stato: statoGiorno(d) }; }),
         titolo: titolo, html: docHtml(htmlSettimana(lun, stampa(u.username)), titolo),
         whatsapp: testoSettimana(lun, true) + "\nInviato da " + u.username + " il " + tsIt(now().ts)
       });
@@ -563,8 +808,9 @@ var MensaCore = (function () {
     function registraInvio(u, p) {
       serve(u, "addetto");
       var giorni = p.lunedi ? giorniSettimana(p.lunedi) : [p.data], n = now();
-      giorni.forEach(function (d) { S.insert("invii", { id: env.uuid().slice(0, 8), data: d, ts: n.ts, da: u.username, modo: (p.modo || "app") + (p.lunedi ? " (settimana)" : ""), pasti: conteggi(d).pasti, file: "" }); });
-      return { ok: true };
+      var modo = /^(app|whatsapp|copia|segnato)$/.test(p.modo || "") ? p.modo : "app";
+      giorni.forEach(function (d) { S.insert("invii", { id: env.uuid().slice(0, 8), data: d, ts: n.ts, da: u.username, modo: modo + (p.lunedi ? " (settimana)" : ""), pasti: conteggi(d).pasti, file: "" }); });
+      return { ok: true, invio: p.data ? statoInvio(p.data) : null };
     }
     function documento(u, p) {   // PDF di più giorni (archivio) o personale
       if (p.personale) {
@@ -573,8 +819,9 @@ var MensaCore = (function () {
       }
       serve(u, "addetto");
       var days = p.giorni || [p.data], st = stampa(u.username);
-      var titolo = days.length > 1 ? "mensa_giorni_" + days[0] : "mensa_ordine_" + days[0];
-      return { html: docHtml(days.map(function (d) { return htmlRiepilogo(d, st); }).join(""), titolo), titolo: titolo };
+      var titolo = (days.length > 1 ? "mensa_giorni_" : "mensa_ordine_") + days[0] + (p.mensa ? "" : "_interno");
+      if (p.controllo) { var tc = "mensa_controllo_" + days[0]; return { html: docHtml(days.map(function (d) { return htmlControllo(d, st); }).join(""), tc), titolo: tc }; }
+      return { html: docHtml(days.map(function (d) { return p.mensa ? htmlMensaGiorno(d, st) : htmlRiepilogo(d, st); }).join(""), titolo), titolo: titolo };
     }
     function inviaRiepilogo(u, p) {   // "Invia riepilogo via email" a chi lo chiede
       serve(u, "addetto");
@@ -586,8 +833,8 @@ var MensaCore = (function () {
           { name: t + ".pdf", html: docHtml(htmlSettimana(p.lunedi, stampa(u.username)), t) }, "riepilogo");
       } else {
         var t2 = "mensa_ordine_" + p.data;
-        ok = manda(u.email, "Mensa – riepilogo " + giornoL(p.data) + " " + it(p.data), testoGiorno(p.data, false) + "\n----- testo per WhatsApp -----\n" + testoGiorno(p.data, true),
-          { name: t2 + ".pdf", html: docHtml(htmlRiepilogo(p.data, stampa(u.username)), t2) }, "riepilogo");
+        ok = manda(u.email, "Mensa – ordine " + giornoL(p.data) + " " + it(p.data), testoGiorno(p.data, false) + "\n----- testo per WhatsApp -----\n" + testoGiorno(p.data, true),
+          { name: t2 + ".pdf", html: docHtml(htmlMensaGiorno(p.data, stampa(u.username)), t2) }, "riepilogo");
       }
       if (!ok) throw err("posta", "Invio non riuscito: vedi Impostazioni → Posta.");
       return { ok: true, a: u.email };
@@ -626,20 +873,29 @@ var MensaCore = (function () {
         var p = piattiCache[o.data] || (piattiCache[o.data] = piattiDel(o.data));
         var an = reg.filter(function (x) { return x.uid === o.uid && x.data === o.data && x.azione === "annulla"; }).sort(function (a, b) { return a.ts < b.ts ? 1 : -1; })[0];
         return { data: o.data, giorno: giornoL(o.data), username: o.username, stato: o.stato === "ok" ? "Consumato" : "Annullato",
-          codici: o.scelte, piatti: splitCodes(o.scelte).map(function (c) { return nomePiatto(p, c); }).join(", "), acqua: o.acqua === "G" ? "Gassata" : "Naturale",
+          codici: splitCodes(o.scelte).map(function (t) { return breve(t); }).join(", "), piatti: splitCodes(o.scelte).map(function (t) { return nomeTok(p, t); }).join(", "),
+          gruppi: sceltePerGruppo(p, splitCodes(o.scelte)), acqua: o.acqua === "G" ? "Gassata" : "Naturale",
           nota: o.nota || "", annullatoIl: o.stato !== "ok" && an ? an.ts : "", dopoChiusura: o.stato !== "ok" && an ? !!an.dopoChiusura : false,
-          inseritoDa: o.inseritoDa || "", ospite: !!o.ospite };
+          inseritoDa: o.inseritoDa || "", ospite: !!o.ospite, annullatoDa: o.stato !== "ok" ? o.annullatoDa || "" : "" };
       });
+      var rich = S.rows("richieste").filter(function (r) { return r.data.slice(0, 7) === mese; });
+      var giorniM = uniq(ord.map(function (o) { return o.data; }).concat(rich.map(function (r) { return r.data; }))).sort();
+      var eventi = [];
+      giorniM.forEach(function (d) { storico(d).forEach(function (e) { eventi.push({ data: d, giorno: giornoL(d), ts: e.ts, cosa: e.cosa, chi: e.chi, det: e.det }); }); });
+      tot.richieste = rich.length; ["approvata", "rifiutata", "scaduta", "ritirata", "attesa"].forEach(function (k) { tot["rich_" + k] = rich.filter(function (r) { return r.stato === k; }).length; });
       return {
+        eventi: eventi,
         mese: mese, righe: righe, totali: tot, perGiorno: Object.keys(giorni).sort().map(function (d) { return { data: d, giorno: giornoL(d), pasti: giorni[d] }; }),
         dettaglio: dettaglio, annullamenti: reg.filter(function (x) { return x.azione === "annulla" && x.dopoChiusura; }).sort(function (a, b) { return a.ts < b.ts ? -1 : 1; })
       };
     }
     function csvReport(R) {
       var q = function (v) { v = String(v == null ? "" : v); return /[;"\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
-      var L = [["REPORT MENSA " + R.mese], [], ["Utente", "Pasti consumati", "Annullamenti dopo l'invio", "Variazioni dopo l'invio", "Inseriti da addetti", "Ospite"]];
+      var L = [["REPORT MENSA " + R.mese], [], ["Utente", "Pasti consumati", "Annullamenti dopo l'invio", "Variazioni dopo l'invio", "Inseriti da gestori", "Ospite"]];
       R.righe.forEach(function (r) { L.push([r.username, r.pasti, r.annullati, r.variazioni, r.perConto, r.ospite ? "SI" : ""]); });
       L.push(["TOTALE", R.totali.pasti, R.totali.annullati, R.totali.variazioni]);
+      if (R.eventi && R.eventi.length) { L.push([], ["VARIAZIONI E APPROVAZIONI"], ["Giorno", "Data/ora", "Evento", "Da", "Dettaglio"]);
+        R.eventi.forEach(function (e) { L.push([it(e.data), tsIt(e.ts), e.cosa, e.chi, e.det]); }); }
       return "﻿" + L.map(function (r) { return r.map(q).join(";"); }).join("\r\n");
     }
 
@@ -707,19 +963,21 @@ var MensaCore = (function () {
       var futuri = giorni.filter(function (d) { return d >= n.date; });
       var segna = function () { coda.forEach(function (r) { S.update("registro", "ts", r.ts, { notificato: true }); }); };
       if (!futuri.length) { segna(); return ""; }
-      var t = "", wa = "";
+      var t = "", wa = "", fogli = "", st = stampa("", true);
       futuri.forEach(function (d) {
+        fogli += htmlMensaGiorno(d, st, true);   // prima di salvare il nuovo totale: contiene la differenza
         var prima = ultimoComunicato(d), k = conteggi(d), p = piattiDel(d);
         var chi = coda.filter(function (r) { return r.data === d; }).map(function (r) { return "  " + tsIt(r.ts).slice(11) + " " + r.username + ": " + ({ annulla: "annullato", modifica: "modificato", ripristina: "aggiunto", prenota: "aggiunto" }[r.azione] || r.azione) + (r.da !== r.username ? " (da " + r.da + ")" : ""); });
         t += "VARIAZIONE MENSA – " + giornoL(d).toUpperCase() + " " + it(d) + "\nModifica del " + tsIt(n.ts) + "\n\n" + bloccoGiorno(d, k, p, false) +
           "\nRispetto all'ultimo totale comunicato" + (prima ? " (" + tsIt(prima.ts) + ")" : "") + ": " + differenze(prima && prima.conteggi, k, p) + "\n" +
-          "Dettaglio (solo per gli addetti):\n" + chi.join("\n") + "\n\n";
+          "Dettaglio (solo per i gestori mensa):\n" + chi.join("\n") + "\n\n";
         wa += "*OMET – VARIAZIONE MENSA*\n" + bloccoGiorno(d, k, p, true) + "Modifica del " + tsIt(n.ts) + "\n\n";
         salvaComunicato(d, "variazione");
       });
       segna();
       var ogg = "Mensa – VARIAZIONE " + futuri.map(function (d) { return giornoL(d) + " " + it(d).slice(0, 5); }).join(", ");
-      manda(emailAddetti(), ogg, t + "----- testo per WhatsApp -----\n" + wa + (env.appUrl || ""), null, "variazione");
+      var tit = "mensa_variazione_" + futuri.join("_");
+      manda(emailAddetti(), ogg, "⚠ RICORDA: invia alla mensa l'ordine aggiornato (PDF allegato o testo WhatsApp qui sotto) e poi segnalo come inviato nella app.\n\n" + t + "----- testo per WhatsApp -----\n" + wa + (env.appUrl || ""), { name: tit + ".pdf", html: docHtml(fogli, tit) }, "variazione");
       return "variazioni " + futuri.join(",");
     }
     function tick() {
@@ -739,6 +997,26 @@ var MensaCore = (function () {
       });
       // 2) variazioni in coda (mai nel weekend)
       if (feriale) { var v = mandaVariazioni(); if (v) fatti.push(v); }
+      // 2b) richieste di annullamento: email in coda (nate nel weekend) e scadenza all'orario di approvazione
+      S.rows("richieste").forEach(function (r) {
+        if (r.stato !== "attesa") return;
+        if (passato(n, scadenzaApprov(r.data, c))) { scadi(r); fatti.push("scaduta " + r.id); return; }
+        if (!r.notificata && feriale) { avvisaRichiesta(r); fatti.push("richiesta " + r.id); }
+      });
+      // 2c) foglio di controllo consegna a gestori e amministrazione (giorni feriali con menu e pasti)
+      if (c.orarioControllo && !weekend(n.date) && n.time >= c.orarioControllo && !giaFatto("controllo_" + n.date) && piattiDel(n.date).length) {
+        segnaFatto("controllo_" + n.date);
+        var kc = conteggi(n.date);
+        if (kc.pasti) {
+          var dest = uniq(emailAddetti().concat(String(c.emailAmministrazione || "").split(/[,;\s]+/).filter(Boolean)));
+          var tc = "mensa_controllo_" + n.date, si = statoInvio(n.date);
+          manda(dest, "Mensa – foglio di controllo " + giornoL(n.date) + " " + it(n.date) + " (" + pl(kc.pasti, "pasto", "pasti") + ")",
+            "In allegato il foglio di controllo della consegna di oggi: " + pl(kc.pasti, "pasto", "pasti") + ".\nStampalo, compila il riquadro (conforme sì/no, pasti consegnati, note, firma) e allegalo ai documenti della mensa.\n" +
+            (si.daInviare ? "\n⚠ ATTENZIONE: l'ordine aggiornato non risulta ancora inviato alla mensa.\n" : "") + "\n" + (env.appUrl || ""),
+            { name: tc + ".pdf", html: docHtml(htmlControllo(n.date, stampa("", true)), tc) }, "controllo");
+          fatti.push("controllo");
+        }
+      }
       // 3) report mensile all'amministrazione: primo giorno lavorativo del mese
       var mesePrec = (function () { var d = pd(n.date); d.setDate(1); d.setMonth(d.getMonth() - 1); return iso(d).slice(0, 7); })();
       if (c.emailAmministrazione && feriale && +n.date.slice(8) <= 7 && !giaFatto("report_" + mesePrec)) {
@@ -758,7 +1036,8 @@ var MensaCore = (function () {
       serve(u, "admin");
       if (p && p.salva) {
         var v = p.salva;
-        ["cutoff", "chiusuraOra"].forEach(function (k) { if (v[k] && !/^\d{2}:\d{2}$/.test(v[k])) throw err("dati", "Orario non valido."); });
+        ["cutoff", "chiusuraOra", "approvazioniFino", "orarioControllo"].forEach(function (k) { if (v[k] && !/^\d{2}:\d{2}$/.test(v[k])) throw err("dati", "Orario non valido."); });
+        if (v.varianti) { var vv = {}; Object.keys(v.varianti).forEach(function (k) { var l = (v.varianti[k] || []).map(function (x) { return String(x).trim().toLowerCase(); }).filter(Boolean); if (k.trim() && l.length >= 2) vv[k.trim().toUpperCase()] = uniq(l); }); v.varianti = vv; }
         setCfg(v);
       }
       return { cfg: cfg(), quota: env.mail.quota ? env.mail.quota() : null, posta: S.rows("posta").slice(-40).reverse(), addetti: emailAddetti() };
@@ -771,13 +1050,18 @@ var MensaCore = (function () {
         var w0 = aperta || sett.filter(function (w) { return w.giorni.some(function (d) { return d >= oggi; }); })[0];
         lun = w0 ? w0.lunedi : (sett.length ? sett[sett.length - 1].lunedi : "");
       }
-      var pub = { cutoff: c.cutoff, chiusuraGiorno: c.chiusuraGiorno, chiusuraOra: c.chiusuraOra, aperturaGiorno: c.aperturaGiorno, variazioni: c.variazioni, limiti: c.limiti, minPiatti: c.minPiatti, nomeMensa: c.nomeMensa };
+      var pub = { cutoff: c.cutoff, chiusuraGiorno: c.chiusuraGiorno, chiusuraOra: c.chiusuraOra, aperturaGiorno: c.aperturaGiorno, variazioni: c.variazioni, limiti: c.limiti, minPiatti: c.minPiatti, nomeMensa: c.nomeMensa, varianti: c.varianti, approvazioniFino: c.approvazioniFino };
       // pasto di oggi, per il riquadro in alto
       var po = piattiDel(oggi), oo = S.rows("ordini").filter(function (o) { return o.data === oggi && o.uid === u.id; })[0];
       var r = { io: pubblico(u), cfg: pub, settimane: sett.map(function (w) { return Object.assign(w, infoSettimana(w.lunedi, c)); }), oggi: oggi, ora: now().time,
         settimana: lun ? settimana(u, { lunedi: lun }) : null,
         pastoOggi: po.length ? { data: oggi, ordine: oo ? pubOrd(oo) : null, piatti: po, stato: statoGiorno(oggi, c) } : null };
       if (u.ruolo === "admin") r.inAttesa = S.rows("utenti").filter(function (x) { return x.stato === "attesa"; }).length;
+      if (isAddetto(u)) {
+        r.richiesteAttesa = S.rows("richieste").filter(function (x) { return x.stato === "attesa"; }).length;
+        var dg = [oggi].concat(giorniSettimana(lunedi(oggi)).filter(function (d) { return d > oggi; })).filter(function (d) { return piattiDel(d).length && statoInvio(d).daInviare; });
+        r.daInviare = dg;
+      }
       return r;
     }
     function ultimoOrdine(u, p) {
@@ -791,6 +1075,9 @@ var MensaCore = (function () {
     var PRIVATE = {
       io: io, esci: esci, profilo: profilo, settimana: settimana, salvaOrdine: salvaOrdine, annullaOrdine: annullaOrdine, ultimoOrdine: ultimoOrdine,
       riepilogo: riepilogo, riepilogoSettimana: riepilogoSettimana, registraInvio: registraInvio, documento: documento, inviaRiepilogo: inviaRiepilogo,
+      richieste: richieste, gestisciRichiesta: gestisciRichiesta, ritiraRichiesta: ritiraRichiesta,
+      statoGestore: function (u) { serve(u, "addetto"); var o = now().date; return { richiesteAttesa: S.rows("richieste").filter(function (x) { return x.stato === "attesa"; }).length,
+        daInviare: [o].concat(giorniSettimana(lunedi(o)).filter(function (d) { return d > o; })).filter(function (d) { return piattiDel(d).length && statoInvio(d).daInviare; }) }; },
       archivio: archivio, salvaMenu: salvaMenu, eliminaGiorno: eliminaGiorno, utenti: utenti, gestisciUtente: gestisciUtente, impostazioni: impostazioni,
       report: function (u, p) { serve(u, "admin"); return calcReport(p.mese); },
       csvReport: function (u, p) { serve(u, "admin"); return { csv: csvReport(calcReport(p.mese)), nome: "mensa_report_" + p.mese + ".csv" }; },
@@ -805,11 +1092,11 @@ var MensaCore = (function () {
       return PRIVATE[action](u, params, token);
     }
 
-    return { call: call, tick: function () { _cfg = null; return tick(); }, cfg: cfg, riep: riep, conteggi: conteggi, testoGiorno: testoGiorno, testoSettimana: testoSettimana,
-      htmlSettimana: htmlSettimana, docHtml: docHtml, calcReport: calcReport, csvReport: csvReport, statoGiorno: statoGiorno };
+    return { call: call, paginaLink: paginaLink, htmlControllo: htmlControllo, statoInvio: statoInvio, storico: storico, tick: function () { _cfg = null; return tick(); }, cfg: cfg, riep: riep, conteggi: conteggi, testoGiorno: testoGiorno, testoSettimana: testoSettimana,
+      htmlSettimana: htmlSettimana, htmlRiepilogo: htmlRiepilogo, htmlMensaGiorno: htmlMensaGiorno, htmlPersonale: htmlPersonale, stampa: stampa, docHtml: docHtml, calcReport: calcReport, csvReport: csvReport, statoGiorno: statoGiorno };
   }
 
-  return { create: create, SCHEMA: SCHEMA, CATS: CATS, DEF_CFG: DEF_CFG, VERSIONE: VERSIONE, DATA_VERSIONE: DATA_VERSIONE,
+  return { create: create, SCHEMA: SCHEMA, CATS: CATS, CATS_MENU: CATS_MENU, grp: grp, DEF_CFG: DEF_CFG, VERSIONE: VERSIONE, DATA_VERSIONE: DATA_VERSIONE,
     util: { pad: pad, iso: iso, it: it, pd: pd, lunedi: lunedi, addDays: addDays, giornoL: giornoL, giornoB: giornoB, tsIt: tsIt, cap: cap, esc: esc, periodo: periodo } };
 })();
 if (typeof module !== "undefined" && module.exports) module.exports = MensaCore;

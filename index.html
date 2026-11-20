@@ -74,6 +74,7 @@ tr:hover td{background:var(--band)}
 .guida li{display:grid;grid-template-columns:28px 1fr;gap:10px;counter-increment:p;font-size:14px}
 .guida li::before{content:counter(p);width:26px;height:26px;border-radius:50%;background:var(--omet);color:#fff;display:grid;place-items:center;font-weight:700;font-size:13px}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+.badge:empty{display:none}
 </style>
 <!-- OMET:COMMON END -->
 
@@ -145,6 +146,8 @@ main{padding-block:16px 10px;display:grid;gap:16px}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
 .seg button{border:0;background:var(--paper);color:var(--ink);padding:8px 14px;cursor:pointer}
 .seg button[aria-pressed="true"]{background:var(--omet);color:#fff}
+.varseg{margin:-2px 0 4px 44px;justify-self:start}
+.varseg button{padding:6px 12px;font-size:14px}
 .actions{display:flex;gap:10px;flex-wrap:wrap;position:sticky;bottom:calc(-16px - env(safe-area-inset-bottom,0px));background:var(--paper);padding-block:10px calc(10px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line);margin-bottom:calc(-16px - env(safe-area-inset-bottom,0px))}
 .actions .btn.primary{flex:1;min-height:44px}
 /* oggi e settimane */
@@ -162,6 +165,8 @@ label.chk.pill input{left:8px;top:4px;width:16px;height:16px}
 .wk .c{min-width:0;border:1px solid var(--line);border-radius:var(--r);padding:10px;display:grid;gap:4px;align-content:start}
 .wk .l{display:flex;justify-content:space-between;gap:8px;font-size:14px}
 .wk .l span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wk .sub{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute);margin-top:6px;font-weight:600}
+table.nomi td{white-space:normal;min-width:120px;vertical-align:top}
 /* gestione */
 .tabs{display:flex;gap:2px;overflow-x:auto;border-bottom:1px solid var(--line);scrollbar-width:none}
 .tabs button{border:0;background:none;color:var(--mute);padding:10px 12px;cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap;font-weight:600}
@@ -230,7 +235,13 @@ details.box summary{cursor:pointer;font-weight:600;color:var(--omet)}
 const TOOL = "Mensa", VERS = MensaCore.VERSIONE, VDATA = MensaCore.DATA_VERSIONE;
 const CFGAPP = window.MENSA_CONFIG || {};
 const DEMO = !CFGAPP.apiUrl;
-const U = MensaCore.util, CATS = MensaCore.CATS;
+const U = MensaCore.util, CATS = MensaCore.CATS, CATS_MENU = MensaCore.CATS_MENU, grp = MensaCore.grp;
+const SING = {primo:"Primo",secondo:"Secondo",contorno:"Contorno, frutta o dolce"};
+/* scelte: "A" oppure "B~riso" (varianti: B/C pasta o riso, P pizza o tramezzino) */
+const tokC=t=>String(t).split("~")[0], tokV=t=>String(t).split("~")[1]||"";
+const varDi=c=>{const l=((S.cfg&&S.cfg.varianti)||{})[c];return Array.isArray(l)&&l.length?l:null};
+function nomeTok(piatti,t){const p=piatti.find(x=>x.c===tokC(t)), n=p?cap(p.n):tokC(t), v=tokV(t)||((varDi(tokC(t))||[])[0]||"");
+  if(!v||!varDi(tokC(t)))return n; return varDi(tokC(t)).some(x=>x.toLowerCase()===n.toLowerCase())?cap(v):n+" – "+v;}
 const $ = s => document.querySelector(s);
 const esc = U.esc, it = U.it, pd = U.pd, iso = U.iso, cap = U.cap;
 const GIORNI = ["Dom","Lun","Mar","Mer","Gio","Ven","Sab"], GIORNI_L = ["Domenica","Lunedì","Martedì","Mercoledì","Giovedì","Venerdì","Sabato"];
@@ -259,8 +270,8 @@ function seedDemo(){
   const c=(a,p,t)=>demoCore.call(a,p,t);
   c("registra",{username:"Admin prova",pin:"0000",email:"admin@prova.it"});
   const A=c("login",{username:"Admin prova",pin:"0000"}).token;
-  const nomi=["Addetto prova","Utente prova","Marco B.","Giulia R.","Paolo V.","Sara M.","Luca T.","Elena F."];
-  nomi.forEach((n,i)=>c("registra",{username:n,pin:["1111","2222"][i]||"9999",email:i===0?"addetto@prova.it":"",acqua:i%3?"N":"G"}));
+  const nomi=["Gestore prova","Utente prova","Marco B.","Giulia R.","Paolo V.","Sara M.","Luca T.","Elena F."];
+  nomi.forEach((n,i)=>c("registra",{username:n,pin:["1111","2222"][i]||"9999",email:i===0?"gestore@prova.it":"",acqua:i%3?"N":"G"}));
   c("registra",{username:"Nuovo collega",pin:"3333"});
   const us=c("utenti",{},A).utenti;
   nomi.forEach((n,i)=>c("gestisciUtente",{id:us.find(u=>u.username===n).id,azione:"approva",ruolo:i===0?"addetto":"utente"},A));
@@ -273,7 +284,8 @@ function seedDemo(){
   giorni.forEach(d=>{ const piatti=st.rows("menu").filter(r=>r.data===d); if(!piatti.length)return;
     tutti.forEach(u=>{ if(u.username==="Utente prova"&&d>=U.addDays(L0,7))return; if(rnd(10)<2)return;
       const pick=cat=>{const l=piatti.filter(p=>p.cat===cat);return l.length?l[rnd(l.length)].cod:null};
-      const sc=[pick("primo"),pick("secondo"),pick("contorno"),rnd(2)?pick("fine"):null].filter(Boolean).join(" ");
+      const V=MensaCore.DEF_CFG.varianti, conV=t=>t&&V[t]?t+"~"+V[t][rnd(3)?0:1]:t;
+      const sc=[conV(pick("primo")),pick("secondo"),rnd(3)?pick("contorno"):pick("fine")].filter(Boolean).join("|");
       st.insert("ordini",{id:d+"_"+u.id,data:d,uid:u.id,username:u.username,scelte:sc,acqua:u.acqua,nota:"",stato:"ok",creato:ts,modificato:ts,inseritoDa:"",tardivo:false,ospite:false}); }); });
   c("esci",{},A);
   demoCore.tick();                       // chiusura (silenziosa) della settimana in corso
@@ -309,7 +321,7 @@ async function api1(action, params){
 function sessionLost(){ LS.set("token",null); S.me=null; setTimeout(render,0); }
 
 /* ===================== stato ===================== */
-const S = { me:null, cfg:null, settimane:[], week:null, wdata:null, view:"week", tab:"riep", riepDay:null, inAttesa:0, offline:false, guidaTab:"ordinare", draft:null };
+const S = { me:null, cfg:null, settimane:[], week:null, wdata:null, view:"week", tab:"riep", riepDay:null, inAttesa:0, richAtt:0, daInviare:[], offline:false, guidaTab:"ordinare", draft:null };
 
 async function boot(){
   if (DEMO) { initDemo(); setInterval(()=>{ try{demoCore.tick()}catch(e){} }, 30000); try{demoCore.tick()}catch(e){} }
@@ -320,7 +332,7 @@ async function boot(){
 async function loadMe(){
   try {
     const r = await api("io",{lunedi:S.week||""});
-    S.me = r.io; S.cfg = r.cfg; S.settimane = r.settimane; S.inAttesa = r.inAttesa||0; S.offline=false; S.pastoOggi = r.pastoOggi;
+    S.me = r.io; S.cfg = r.cfg; S.settimane = r.settimane; S.inAttesa = r.inAttesa||0; S.richAtt = r.richiesteAttesa||0; S.daInviare = r.daInviare||[]; S.offline=false; S.pastoOggi = r.pastoOggi;
     const w = r.settimana; delete r.settimana; LS.setJson("cache.io", r);
     if (w) { S.week = w.lunedi; setWeek(w); } else { S.week = pickWeek(); S.wdata=null; }
     renderBars();
@@ -344,7 +356,7 @@ window.addEventListener("offline",()=>{ S.offline=true; renderBars(); });
 /* ===================== barre e piè di pagina ===================== */
 function renderBars(){
   let h="";
-  if (DEMO) h+=`<div class="demo"><div class="wrap"><span class="badge warn">⚠ Prova</span><span style="flex:1;min-width:180px">Dati solo su questo dispositivo, email simulate. <b>Admin prova</b> 0000 · <b>Addetto prova</b> 1111 · <b>Utente prova</b> 2222</span><button class="btn sm" id="demoreset">Azzera prova</button></div></div>`;
+  if (DEMO) h+=`<div class="demo"><div class="wrap"><span class="badge warn">⚠ Prova</span><span style="flex:1;min-width:180px">Dati solo su questo dispositivo, email simulate. <b>Admin prova</b> 0000 · <b>Gestore prova</b> 1111 · <b>Utente prova</b> 2222</span><button class="btn sm" id="demoreset">Azzera prova</button></div></div>`;
   if (S.offline) h+=`<div class="offline">— Sei offline: vedi i dati salvati${S.offlineT?" alle "+new Date(S.offlineT).toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}):""}. Per ordinare serve la connessione.</div>`;
   $("#bars").innerHTML=h;
   if ($("#demoreset")) $("#demoreset").onclick=()=>{ if(!confirm("Azzerare tutti i dati di prova su questo dispositivo?"))return; LS.set("prova",null);LS.set("prova.posta",null);LS.set("token",null);location.reload(); };
@@ -455,12 +467,12 @@ function bindInstall(){
 }
 
 /* ===================== settimana ===================== */
-function riassunto(o,g){ return (o.scelte||[]).map(c=>{const p=g.piatti.find(x=>x.c===c);return p?cap(p.n):c}).join(" · ")+` · acqua ${o.acqua==="G"?"gassata":"naturale"}` }
+function riassunto(o,g){ return (o.scelte||[]).map(t=>nomeTok(g.piatti,t)).join(" · ")+` · acqua ${o.acqua==="G"?"gassata":"naturale"}` }
 const GG=["","lunedì","martedì","mercoledì","giovedì","venerdì","sabato","domenica"];
 function quando(x){ return `${GIORNI_L[pd(x.date).getDay()].toLowerCase()} ${it(x.date).slice(0,5)} alle ${x.time}` }
 function statoSettimanaTxt(w){
   if(w.aperta) return {cls:"ok",t:`✓ Prenotazioni aperte fino a <b>${quando(w.chiude)}</b>.`};
-  if(w.chiusa) return {cls:"",t:`i&nbsp; Prenotazioni chiuse ${quando(w.chiude)}: l'ordine è partito per la mensa. Ora puoi solo <b>annullare</b> un pasto entro le <b>${esc(S.cfg.cutoff)}</b> del giorno${S.cfg.variazioni?" (o cambiarlo)":""}.`};
+  if(w.chiusa) return {cls:"",t:`i&nbsp; Prenotazioni chiuse ${quando(w.chiude)}: l'ordine è partito per la mensa. Ora puoi solo <b>chiedere l'annullamento</b> di un pasto entro le <b>${esc(S.cfg.cutoff)}</b> del giorno: lo approva un gestore mensa${S.cfg.variazioni?" (o cambiarlo)":""}.`};
   return {cls:"",t:`i&nbsp; Le prenotazioni si aprono <b>${quando(w.apre)}</b>.`};
 }
 function cardOggi(){
@@ -469,7 +481,8 @@ function cardOggi(){
   const g={data:po.data,piatti:po.piatti,stato:po.stato,ordine:o};
   return `<button class="oggi ${ok?"":"no"}" id="oggi"><span class="eyebrow" style="color:inherit;opacity:.85">Oggi · ${GIORNI_L[d.getDay()]} ${it(po.data).slice(0,5)}</span>
     <span class="cosa">${ok?esc(riassunto(o,g)):"Oggi non hai prenotato il pasto"}</span>
-    ${ok&&po.stato==="chiuso"?`<span style="font-size:13px;opacity:.85">Non vieni? Annulla entro le ${esc(S.cfg.cutoff)}</span>`:""}</button>`;
+    ${ok&&po.stato==="chiuso"?`<span style="font-size:13px;opacity:.85">${o.richiesta&&o.richiesta.stato==="attesa"?"⏳ Annullamento richiesto: in attesa di un gestore mensa":S.me.ruolo==="utente"?"Non vieni? Chiedi l'annullamento entro le "+esc(S.cfg.cutoff):"Non vieni? Annulla entro le "+esc(S.cfg.cutoff)}</span>`:""}
+    ${!ok&&o&&o.annullatoDa?`<span style="font-size:13px;opacity:.85">Annullato da ${esc(o.annullatoDa)} ${esc(ilAlle(o.annullatoIl))}</span>`:""}</button>`;
 }
 function renderWeek(app){
   const m=S.wdata; const me=S.me; const today=oggi();
@@ -478,13 +491,15 @@ function renderWeek(app){
   const st=statoSettimanaTxt(m);
   const tabs=S.settimane.length<=3?S.settimane:S.settimane.filter(w=>Math.abs(pd(w.lunedi)-pd(S.week))<=21*864e5);
   app.innerHTML=`${S.me.ruolo==="admin"&&S.inAttesa?`<div class="avviso warn">⚠ ATTENZIONE&nbsp; ${S.inAttesa} ${S.inAttesa===1?"registrazione":"registrazioni"} da approvare. <button class="linkbtn" id="goappr">Apri Utenti</button></div>`:""}
+   ${bannerGestore()}
    ${cardOggi()}
    <div class="segw" role="tablist">${tabs.map(w=>`<button role="tab" data-w="${w.lunedi}" aria-selected="${w.lunedi===S.week}"><b>${w.lunedi===U.lunedi(today)?"Questa settimana":w.lunedi===U.addDays(U.lunedi(today),7)?"Prossima settimana":"Dal "+it(w.lunedi).slice(0,5)}</b><small>${esc(U.periodo(w.lunedi))} · ${w.aperta?"aperta":w.chiusa?"inviata":"non ancora aperta"}</small></button>`).join("")}</div>
    <div class="avviso ${st.cls}">${st.t}</div>
    <div class="days">${m.giorni.map(g=>{const o=g.ordine;const d=pd(g.data);const ok=o&&o.stato==="ok";
      let pill,sum="";
-     if(ok){pill=g.stato==="concluso"?`<span class="badge neu">✓ Consumato</span>`:`<span class="badge ok">✓ Prenotato</span>`;sum=riassunto(o,g)}
-     else if(o&&o.stato==="annullato"){pill=`<span class="badge neu">— Annullato</span>`;sum="Nessun pasto"}
+     if(ok&&o.richiesta&&o.richiesta.stato==="attesa"&&g.stato!=="concluso"){pill=`<span class="badge warn">⏳ Annullamento richiesto</span>`;sum=riassunto(o,g)}
+     else if(ok){pill=g.stato==="concluso"?`<span class="badge neu">✓ Consumato</span>`:`<span class="badge ok">✓ Prenotato</span>`;sum=riassunto(o,g)}
+     else if(o&&o.stato==="annullato"){pill=`<span class="badge neu">— Annullato</span>`;sum=o.annullatoDa?"Annullato da "+o.annullatoDa+" "+ilAlle(o.annullatoIl):"Nessun pasto"}
      else if(g.stato==="aperto"){pill='<span class="badge info">i Da scegliere</span>';sum="Tocca per scegliere"}
      else if(g.stato==="futuro"){pill='<span class="badge neu">— Non ancora aperto</span>';sum="Si apre "+quando(m.apre)}
      else{pill='<span class="badge neu">— Nessun pasto</span>';sum=""}
@@ -494,6 +509,7 @@ function renderWeek(app){
    ${installCard()}`;
   app.querySelectorAll(".segw button").forEach(b=>b.onclick=async()=>{S.week=b.dataset.w;await loadWeek();render()});
   if($("#goappr"))$("#goappr").onclick=()=>{S.view="admin";S.tab="utenti";render()};
+  bindBanner();
   if($("#oggi"))$("#oggi").onclick=()=>{const po=S.pastoOggi;openDay({data:po.data,piatti:po.piatti,stato:po.stato,ordine:po.ordine})};
   $("#leg").onclick=openLegenda;
   $("#miastampa").onclick=async()=>{try{const d=await api("documento",{personale:true,lunedi:S.week});
@@ -531,60 +547,89 @@ function openDay(g, perConto){
   const ex = perConto ? perConto.ordine : g.ordine;
   const exOk = !!(ex&&ex.stato==="ok");
   const pref = perConto ? "N" : (S.me.acqua==="G"?"G":"N");
-  let sel=new Set(exOk?ex.scelte:[]), acqua=exOk&&ex.acqua?ex.acqua:pref, nota=exOk?ex.nota||"":"";
+  let sel=new Set(exOk?ex.scelte:[]), acqua=exOk&&ex.acqua?ex.acqua:pref;
+  const tokDi=c=>[...sel].find(t=>tokC(t)===c);
   const addetto=S.me.ruolo!=="utente";
   const st=g.stato;   // futuro | aperto | chiuso | concluso
   const canEdit=!S.offline&&(addetto||st==="aperto"||(st==="chiuso"&&S.cfg.variazioni&&exOk));
-  const canCancel=!S.offline&&exOk&&(addetto||st==="aperto"||st==="chiuso");
+  const rich=!perConto&&ex&&ex.richiesta, inAttesa=!!(rich&&rich.stato==="attesa"&&st!=="concluso");
+  const canCancel=!S.offline&&exOk&&!inAttesa&&(addetto||st==="aperto"||st==="chiuso");
+  const chiede=!addetto&&st==="chiuso";   // dopo l'invio l'utente chiede, un gestore approva
   const L=S.cfg.limiti;
   let sh;
-  const badge=()=>st==="aperto"?`<span class="badge ok">✓ Prenotabile</span>`:st==="chiuso"?`<span class="badge ${addetto?"warn":"neu"}">${addetto?"⚠ Ordine già inviato · modifica da addetto":"— Ordine inviato · annullabile entro le "+esc(S.cfg.cutoff)}</span>`:st==="futuro"?`<span class="badge neu">— Non ancora aperto</span>`:`<span class="badge ${addetto?"warn":"neu"}">${addetto?"⚠ Giorno concluso · modifica da addetto":"— Concluso"}</span>`;
+  const badge=()=>st==="aperto"?`<span class="badge ok">✓ Prenotabile</span>`:st==="chiuso"?`<span class="badge ${addetto?"warn":"neu"}">${addetto?"⚠ Ordine già inviato · modifica da gestore":"— Ordine inviato · annullamento su richiesta entro le "+esc(S.cfg.cutoff)}</span>`:st==="futuro"?`<span class="badge neu">— Non ancora aperto</span>`:`<span class="badge ${addetto?"warn":"neu"}">${addetto?"⚠ Giorno concluso · modifica da gestore":"— Concluso"}</span>`;
   const draw=()=>{
-    const cnt=c=>[...sel].filter(k=>g.piatti.find(x=>x.c===k)?.cat===c).length;
+    const cnt=c=>[...sel].filter(k=>grp(g.piatti.find(x=>x.c===tokC(k))?.cat)===c).length;
     const d=pd(g.data);
     const html=`<div class="top"><div><div class="eyebrow">${perConto?(perConto.ospite&&!perConto.uid?"Nuovo ospite":"Ordine per "+esc(perConto.username)):"Il tuo pasto"}</div><h2>${GIORNI_L[d.getDay()]} ${it(g.data)}</h2>
        <div style="margin-top:6px">${badge()}</div></div><button class="btn sm x" data-close aria-label="Chiudi">✕</button></div>
      ${perConto&&perConto.ospite&&!perConto.uid?`<label class="f">Nome dell'ospite<input id="ospnome" maxlength="40" placeholder="es. Cliente Rossi"></label>`:""}
      ${!perConto&&canEdit&&!sel.size?`<div><button class="btn sm" id="last">↺ Come l'ultima volta</button></div>`:""}
-     ${CATS.map(([c,lab])=>{const lim=+L[c];const items=g.piatti.filter(x=>x.cat===c);if(!items.length)return"";const full=!perConto&&cnt(c)>=lim;
-       return `<div class="grp"><div class="gh"><h3>${lab}</h3><span class="muted" style="font-size:13px">${perConto?cnt(c)+" scelti":lim===0?"Non previsto":`${cnt(c)} di ${lim}`}</span></div><div class="dishes">${items.map(x=>{const on=sel.has(x.c);
-         return `<button class="dish" data-c="${esc(x.c)}" aria-pressed="${on}" ${(!canEdit||(!on&&(full||(!perConto&&lim===0))))?"disabled":""}><span class="k">${esc(x.c)}</span><span class="n">${esc(cap(x.n))}${x.panna?" <b title='con panna'>P</b>":""}${x.maiale?" <b title='contiene maiale'>**</b>":""}${avvisoAll(x)}</span><span class="a">${x.all?esc(x.all):""}</span></button>`}).join("")}</div></div>`}).join("")}
+     ${CATS.map(([c,lab])=>{const lim=+L[c];const items=g.piatti.filter(x=>grp(x.cat)===c);if(!items.length)return"";const full=!perConto&&cnt(c)>=lim;
+       return `<div class="grp"><div class="gh"><h3>${lab}</h3><span class="muted" style="font-size:13px">${perConto?cnt(c)+" scelti":lim===0?"Non previsto":lim===1?(cnt(c)?"scelto":"scegline 1"):`${cnt(c)} di ${lim}`}</span></div><div class="dishes">${items.map(x=>{const t=tokDi(x.c),on=!!t,vl=varDi(x.c);
+         return `<button class="dish" data-c="${esc(x.c)}" aria-pressed="${on}" ${(!canEdit||(!on&&(full||(!perConto&&lim===0))))?"disabled":""}><span class="k">${esc(x.c)}</span><span class="n">${esc(cap(x.n))}${x.panna?" <b title='con panna'>P</b>":""}${x.maiale?" <b title='contiene maiale'>**</b>":""}${vl?` <span class="muted" style="font-size:12px">(${vl.map(esc).join(" o ")})</span>`:""}${avvisoAll(x)}</span><span class="a">${x.all?esc(x.all):""}</span></button>
+           ${on&&vl?`<div class="seg varseg" data-vc="${esc(x.c)}">${vl.map(v=>`<button data-v="${esc(v)}" aria-pressed="${(tokV(t)||vl[0])===v}" ${canEdit?"":"disabled"}>${esc(cap(v))}</button>`).join("")}</div>`:""}`}).join("")}</div></div>`}).join("")}
      <div class="grp"><h3>Acqua <span class="muted" style="font-size:13px;font-weight:400">· sempre compresa</span></h3><div class="seg">${[["N","Naturale"],["G","Gassata"]].map(([v,t])=>`<button data-a="${v}" aria-pressed="${acqua===v}" ${canEdit?"":"disabled"}>${t}</button>`).join("")}</div></div>
-     <label class="f">Nota per la mensa (facoltativa)<input id="nota" maxlength="120" value="${esc(nota)}" ${canEdit?"":"disabled"} placeholder="es. senza sale, porzione piccola"></label>
-     ${ex?`<div class="muted" style="font-size:13px">Ultima modifica ${tsIt(ex.modificato)}${ex.inseritoDa?" · inserito da "+esc(ex.inseritoDa):""}${ex.stato==="annullato"?" · annullato":""}</div>`:""}
+     ${ex?`<div class="muted" style="font-size:13px">Ultima modifica ${tsIt(ex.modificato)}${ex.inseritoDa?" · inserito da "+esc(ex.inseritoDa):""}${ex.stato==="annullato"?(ex.annullatoDa?` · <b>annullato da ${esc(ex.annullatoDa)} ${esc(ilAlle(ex.annullatoIl))}</b>`:" · annullato"):""}</div>`:""}
+     ${inAttesa?`<div class="avviso warn">⏳ Hai chiesto l'annullamento il ${esc(tsIt(rich.ts))}. Un gestore mensa deve approvarlo entro le <b>${esc(S.cfg.approvazioniFino||"10:00")}</b>: fino ad allora il pasto resta prenotato.
+        <div class="row" style="margin-top:8px">${bottoniCondividi(rich.testo||testoRichiestaC(g,ex),"Richiesta di annullamento pasto")}<button class="btn sm" id="ritira">Ritira la richiesta</button></div></div>`:""}
+     ${rich&&!inAttesa&&exOk&&(rich.stato==="rifiutata"||rich.stato==="scaduta")?`<div class="avviso">i&nbsp; Richiesta di annullamento ${rich.stato==="rifiutata"?"non accettata da "+esc(rich.gestitoDa)+(rich.motivo?": "+esc(rich.motivo):""):"scaduta alle "+esc(S.cfg.approvazioniFino||"10:00")}. Il pasto resta confermato.</div>`:""}
      ${S.offline?`<div class="avviso warn">⚠ Sei offline: per prenotare o annullare serve la connessione.</div>`:""}
-     ${!addetto&&st==="chiuso"&&exOk?`<div class="avviso">i&nbsp; L'ordine della settimana è già partito. Se non vieni, annulla entro le <b>${esc(S.cfg.cutoff)}</b>: gli addetti avvisano la mensa.</div>`:""}
+     ${!addetto&&st==="chiuso"&&exOk&&!inAttesa?`<div class="avviso">i&nbsp; L'ordine della settimana è già partito. Se non vieni, <b>chiedi l'annullamento</b> entro le <b>${esc(S.cfg.cutoff)}</b>: lo approva un gestore mensa e ti arriva la conferma.</div>`:""}
+     ${!addetto&&st==="concluso"&&exOk?`<div class="avviso">i&nbsp; Sono passate le ${esc(S.cfg.cutoff)}: per annullare chiama un gestore mensa.</div>`:""}
      ${!addetto&&st==="chiuso"&&!exOk?`<div class="avviso">i&nbsp; L'ordine della settimana è già partito: per questo giorno non puoi più prenotare.</div>`:""}
      ${!addetto&&st==="futuro"?`<div class="avviso">i&nbsp; Le prenotazioni per questa settimana non sono ancora aperte.</div>`:""}
      <div class="actions">
-       ${canCancel?`<button class="btn danger" id="ann">Annulla pasto</button>`:""}
+       ${canCancel?`<button class="btn danger" id="ann">${chiede?"Richiedi annullamento":"Annulla pasto"}</button>`:""}
        ${canEdit?`<button class="btn primary" id="ok" ${sel.size?"":"disabled"}>${exOk?"Salva modifiche":"Prenota"}</button>`:`<button class="btn" data-close style="flex:1">Chiudi</button>`}
      </div>`;
     if(!sh) sh=sheet(html); else { sh.root.innerHTML=html; sh.root.querySelectorAll("[data-close]").forEach(b=>b.onclick=sh.close); }
-    const R=sh.root, keep=()=>{nota=$("#nota").value;return $("#ospnome")?$("#ospnome").value:""}, back=o=>{if($("#ospnome"))$("#ospnome").value=o};
-    R.querySelectorAll(".dish").forEach(b=>b.onclick=()=>{const c=b.dataset.c;sel.has(c)?sel.delete(c):sel.add(c);const o=keep();draw();back(o)});
-    R.querySelectorAll(".seg button").forEach(b=>b.onclick=()=>{acqua=b.dataset.a;const o=keep();draw();back(o)});
+    const R=sh.root, keep=()=>$("#ospnome")?$("#ospnome").value:"", back=o=>{if($("#ospnome"))$("#ospnome").value=o};
+    R.querySelectorAll(".dish").forEach(b=>b.onclick=()=>{const c=b.dataset.c,t=tokDi(c);if(t)sel.delete(t);else{const vl=varDi(c);sel.add(vl?c+"~"+vl[0]:c)}const o=keep();draw();back(o)});
+    R.querySelectorAll(".varseg button").forEach(b=>b.onclick=()=>{const c=b.closest(".varseg").dataset.vc,t=tokDi(c);if(t)sel.delete(t);sel.add(c+"~"+b.dataset.v);const o=keep();draw();back(o)});
+    R.querySelectorAll(".seg button[data-a]").forEach(b=>b.onclick=()=>{acqua=b.dataset.a;const o=keep();draw();back(o)});
     if($("#last"))$("#last").onclick=async()=>{try{const r=await api("ultimoOrdine",{data:g.data});if(!r.ordine){toast("Nessun ordine precedente");return}
-      let n=0;r.ordine.scelte.forEach(c=>{const old=r.piatti.find(x=>x.c===c),now=g.piatti.find(x=>x.c===c);if(old&&now&&old.n===now.n){sel.add(c);n++}});
+      let n=0;r.ordine.scelte.forEach(t=>{const c=tokC(t),old=r.piatti.find(x=>x.c===c),now=g.piatti.find(x=>x.c===c);if(old&&now&&old.n===now.n){sel.add(t);n++}});
       draw();toast(n?`Ripresi ${n} piatti uguali a ${it(r.ordine.data)}`:"Oggi i piatti sono diversi: scegli tu")}catch(e){toast(e.message)}};
     if($("#ok"))$("#ok").onclick=save;
     if($("#ann"))$("#ann").onclick=confirmCancel;
+    if($("#ritira"))$("#ritira").onclick=async()=>{try{const r=await api("ritiraRichiesta",{data:g.data,conSettimana:true});toast("Richiesta ritirata: il pasto resta");sh.close();await afterChange(r.settimana)}catch(e){toast(e.message)}};
+    legaCondividi(R);
   };
   async function save(){
     const b=$("#ok");b.disabled=true;b.textContent="Salvataggio…";
-    const p={data:g.data,scelte:[...sel],acqua,nota:$("#nota").value};
+    const p={data:g.data,scelte:[...sel],acqua};
     if(perConto){ if(perConto.uid)p.uid=perConto.uid; if(perConto.ospite){p.ospite=true;p.nomeOspite=$("#ospnome")?$("#ospnome").value:perConto.username} } else p.conSettimana=true;
-    try{const r=await api("salvaOrdine",p);toast(r.invariato?"Nessuna modifica":(st==="aperto"?"Prenotazione salvata ✓":"Salvato · gli addetti ricevono la variazione"));sh.close();await afterChange(r.settimana)}
+    try{const r=await api("salvaOrdine",p);toast(r.invariato?"Nessuna modifica":(st==="aperto"?"Prenotazione salvata ✓":"Salvato · i gestori mensa ricevono la variazione"));sh.close();await afterChange(r.settimana)}
     catch(e){toast(e.message);b.disabled=false;b.textContent="Riprova"}
   }
   function confirmCancel(){
     const a=sh.root.querySelector(".actions");
-    a.innerHTML=`<span style="flex:1;font-size:14px">${st==="aperto"?"Togli la prenotazione di questo giorno?":"Confermi l'annullamento? Gli addetti riceveranno la variazione per la mensa."}</span><button class="btn" id="no">No</button><button class="btn danger" id="si">Sì, annulla</button>`;
+    a.innerHTML=`<span style="flex:1;font-size:14px">${st==="aperto"?"Togli la prenotazione di questo giorno?":chiede?`Inviare la richiesta? Un gestore mensa deve approvarla entro le ${esc(S.cfg.approvazioniFino||"10:00")}; fino ad allora il pasto resta.`:"Confermi l'annullamento? Ha effetto subito: i gestori mensa ricevono la variazione e va inviato alla mensa l'ordine aggiornato."}</span><button class="btn" id="no">No</button><button class="btn danger" id="si">${chiede?"Sì, invia richiesta":"Sì, annulla"}</button>`;
     $("#no").onclick=draw;
-    $("#si").onclick=async()=>{$("#si").disabled=true;try{const r=await api("annullaOrdine",{data:g.data,uid:perConto?perConto.uid:undefined,conSettimana:!perConto});toast(st==="aperto"?"Prenotazione tolta":"Pasto annullato · avviso agli addetti in arrivo");sh.close();await afterChange(r.settimana)}catch(e){toast(e.message);$("#si").disabled=false}};
+    $("#si").onclick=async()=>{$("#si").disabled=true;try{const r=await api("annullaOrdine",{data:g.data,uid:perConto?perConto.uid:undefined,conSettimana:!perConto});sh.close();
+      if(r.richiesta){toast("Richiesta inviata ai gestori mensa");await afterChange(r.settimana);condividi("Richiesta inviata","Avvisa un gestore mensa (facoltativo):",r.condividi,"Richiesta di annullamento pasto");return}
+      toast(st==="aperto"?"Prenotazione tolta":"Pasto annullato · ricorda di inviare alla mensa l'ordine aggiornato");await afterChange(r.settimana);
+      if(r.conferma)condividi("Annullamento fatto","Manda la conferma a "+esc(perConto?perConto.username:"")+" (l'email parte da sola se l'ha inserita):",r.conferma,"Conferma annullamento pasto");
+      if(addetto&&st!=="aperto")aggiornaGestore()}catch(e){toast(e.message);$("#si").disabled=false}};
   }
   draw();
 }
+const ilAlle=ts=>ts?"il "+tsIt(ts).replace(" ore "," alle "):"";
+function testoRichiestaC(g,ex){return `Ciao, ti ho inviato dalla app Mensa Omet una richiesta di annullamento per il pasto di ${GIORNI_L[pd(g.data).getDay()].toLowerCase()} ${it(g.data)}. Grazie!`}
+function bottoniCondividi(t,oggetto){const e=encodeURIComponent;
+  return `<a class="btn sm" href="https://wa.me/?text=${e(t)}" target="_blank" rel="noopener">🟢 WhatsApp</a><a class="btn sm" href="mailto:?subject=${e(oggetto||"Mensa Omet")}&body=${e(t)}">✉ Email</a>${navigator.share?`<button class="btn sm" data-share="${esc(t)}">⇪ Condividi</button>`:""}<button class="btn sm" data-copy="${esc(t)}">Copia</button>`}
+function legaCondividi(root){root.querySelectorAll("[data-copy]").forEach(b=>b.onclick=()=>copia(b.dataset.copy).then(ok=>ok?toast("Testo copiato ✓"):showText(b.dataset.copy)));
+  root.querySelectorAll("[data-share]").forEach(b=>b.onclick=()=>navigator.share({text:b.dataset.share}).catch(()=>{}))}
+function condividi(titolo,sotto,testo,oggetto){const sh=sheet(`<div class="top"><div><div class="eyebrow">Mensa</div><h2>${esc(titolo)}</h2></div><button class="btn sm x" data-close>✕</button></div>
+  <div class="muted" style="font-size:13px">${sotto}</div><pre class="txt">${esc(testo)}</pre><div class="row">${bottoniCondividi(testo,oggetto)}</div>`);legaCondividi(sh.root)}
+function bannerGestore(){if(!S.me||S.me.ruolo==="utente")return"";let h="";
+  if(S.richAtt)h+=`<div class="avviso warn">⏳ ${plur(S.richAtt,"richiesta","richieste")} di annullamento da approvare. <button class="linkbtn" data-ban="rich">Apri Richieste</button></div>`;
+  if(S.daInviare.length)h+=`<div class="avviso warn">⚠ ORDINE AGGIORNATO DA INVIARE ALLA MENSA: ${S.daInviare.map(d=>GIORNI[pd(d).getDay()]+" "+it(d).slice(0,5)).join(", ")}. <button class="linkbtn" data-ban="${S.daInviare[0]}">Apri il giorno</button></div>`;
+  return h}
+function bindBanner(){document.querySelectorAll("[data-ban]").forEach(b=>b.onclick=()=>{S.view="admin";if(b.dataset.ban==="rich")S.tab="rich";else{S.tab="riep";S.riepMode="giorno";S.riepDay=b.dataset.ban}render()})}
+async function aggiornaGestore(){if(!S.me||S.me.ruolo==="utente")return;try{const r=await api("statoGestore");S.richAtt=r.richiesteAttesa;S.daInviare=r.daInviare;const b=$("#banners");if(b){b.innerHTML=bannerGestore();bindBanner()}
+  document.querySelectorAll('.tabs [data-t="rich"] .badge').forEach(x=>x.textContent=S.richAtt||"")}catch(e){}}
 async function afterChange(w){ if(S.view==="admin"){ renderAdmin($("#app")); return; } if(w&&w.lunedi===S.week)setWeek(w); else await loadWeek(); render(); }
 
 /* ---- profilo ---- */
@@ -596,7 +641,7 @@ function openProfilo(){
     <div class="grp"><h3>Email</h3>
       <label class="f">Email (facoltativa)<input id="pe" type="email" value="${esc(me.email)}" placeholder="nome@omet-foodtech.it"></label>
       <label class="chk"><input type="checkbox" id="pm" ${me.mailSettimana?"checked":""}> Quando si chiude la settimana, mandami via email il riepilogo dei miei pasti</label>
-      ${me.ruolo!=="utente"?`<label class="chk"><input type="checkbox" id="pn" ${me.notifiche?"checked":""}> Ricevi le email per la mensa: ordine della settimana e variazioni (addetti)</label>`:""}
+      ${me.ruolo!=="utente"?`<label class="chk"><input type="checkbox" id="pn" ${me.notifiche?"checked":""}> Ricevi le email per la mensa: ordine della settimana, richieste di annullamento, variazioni e foglio di controllo (gestori mensa)</label>`:""}
     </div>
     <div class="grp"><h3>Cambia PIN</h3><div class="grid2"><label class="f">PIN attuale<input id="p0" type="password" inputmode="numeric" maxlength="6"></label><label class="f">Nuovo PIN (4–6 cifre)<input id="p1" type="password" inputmode="numeric" maxlength="6"></label></div></div>
     <div class="row"><button class="btn primary" id="psave">Salva profilo</button></div>
@@ -621,53 +666,61 @@ const GUIDA={
     "In alto vedi subito <b>cosa mangi oggi</b>.",
     "<b>Prossima settimana</b>: si prenota dal lunedì fino al <b>venerdì alle 17:00</b>. Tocca un giorno, scegli i piatti, <b>Prenota</b>. Fino alla chiusura puoi cambiare quanto vuoi.",
     "L'<b>acqua</b> è sempre compresa: scegli nel profilo se la vuoi naturale o gassata, la app la mette da sola.",
-    "Venerdì alle 17 l'ordine parte per la mensa. Da lì in poi puoi solo <b>annullare</b> un pasto, entro le <b>9:30 del giorno</b> (es. sei malato): gli addetti ricevono la variazione. Chi non ha prenotato resta senza.",
-    "Nel weekend non si prenota; si può solo annullare.",
+    "Venerdì alle 17 l'ordine parte per la mensa. Da lì in poi puoi solo <b>chiedere l'annullamento</b> di un pasto, entro le <b>9:30 del giorno</b> (es. sei malato). Un <b>gestore mensa</b> lo approva: fino ad allora il pasto resta. Ti arriva la conferma (email, se l'hai inserita). Se nessuno risponde entro le 10:00 la richiesta scade e il pasto resta.",
+    "Dopo aver chiesto l'annullamento puoi avvisare un gestore con <b>WhatsApp</b> o <b>Email</b>: il testo è già pronto. Dopo le 9:30 annulla solo un gestore: chiamalo.",
+    "Se un gestore annulla il tuo pasto, nel giorno vedi <b>annullato da … il … alle …</b>.",
+    "Nel weekend non si prenota; si può solo chiedere l'annullamento.",
     "<b>La mia settimana (PDF)</b> stampa i tuoi pasti. Nel profilo puoi chiedere di riceverli anche via email alla chiusura.",
     "Nel <b>profilo</b> (👤): acqua preferita, email, PIN, allergeni da evidenziare (restano solo sul telefono)."],
   installare:["<b>Android (Chrome)</b>: apri la pagina, tocca <b>Installa</b> nel riquadro o dal menu ⋮ → <b>Installa app</b>.",
     "<b>iPhone / iPad</b>: apri la pagina con <b>Safari</b>, tocca <b>Condividi</b> ⬆︎ → <b>Aggiungi alla schermata Home</b>.",
     "<b>PC (Edge o Chrome)</b>: icona di installazione nella barra dell'indirizzo, oppure menu → <b>Installa Mensa Omet</b>.",
     "L'app si aggiorna da sola. Senza rete mostra l'ultima settimana vista; per prenotare serve la connessione."],
-  addetti:["Venerdì alle 17 (entro 5 minuti) ricevi l'<b>email con l'ordine della settimana</b>: per ogni giorno totale pasti e quanti di ogni piatto, PDF in allegato e testo pronto per WhatsApp.",
+  addetti:["<b>Richieste di annullamento</b> (dopo l'invio dell'ordine): ti arriva un'email con <b>APPROVA</b> / <b>RIFIUTA</b> (un clic) e le trovi in <b>Gestione → Richieste</b>. Vale il primo gestore che risponde. Motivo del rifiuto facoltativo. Entro le 10:00, poi scadono e il pasto resta.",
+    "Dopo un'approvazione o un tuo annullamento diretto la app ti dà il testo di <b>conferma</b> da mandare alla persona (WhatsApp, email…). Se ha l'email, la conferma parte anche da sola.",
+    "Dopo le 9:30 solo i gestori annullano, anche per altri: ha effetto subito.",
+    "<b>ORDINE AGGIORNATO DA INVIARE ALLA MENSA</b>: l'avviso resta finché non invii il nuovo totale (PDF, WhatsApp, copia) o premi <b>Segna come inviato</b>. Torna se arriva un altro annullamento.",
+    "Alle 11:00 arriva a gestori e amministrazione il <b>foglio di controllo</b> (senza nomi) con il riquadro da compilare a mano: conforme sì/no, pasti consegnati, note, firma. Va allegato ai documenti della mensa. Si stampa anche da Riepilogo → Giorno.",
+    "Venerdì alle 17 (entro 5 minuti) ricevi l'<b>email con l'ordine della settimana</b>: per ogni giorno totale pasti e quanti di ogni piatto, PDF in allegato e testo pronto per WhatsApp.",
     "Quando qualcuno annulla dopo l'invio ricevi entro 5 minuti l'email <b>VARIAZIONE MENSA</b> con il <b>totale aggiornato del giorno</b> e la differenza rispetto all'ultimo totale. Gira il testo WhatsApp alla mensa. Nel weekend nessuna email: arrivano lunedì a mezzanotte.",
     "<b>Gestione → Riepilogo → Settimana</b>: l'ordine della settimana, con PDF, Copia/Invia WhatsApp e Invia via email a te.",
-    "<b>Riepilogo → Giorno</b>: totali, foglio nominativo, annullamenti; da qui inserisci un pasto per un collega o un ospite anche dopo l'invio (parte la variazione).",
+    "<b>Riepilogo → Giorno</b>: totali, foglio nominativo, <b>storico</b> (richieste, approvazioni, variazioni, invii); da qui inserisci un pasto per un collega o un ospite anche dopo l'invio (parte la variazione).",
     "<b>Archivio</b>: per ogni settimana cosa è stato comunicato alla mensa e quando.",
     "<b>Menu</b>: carica il PDF del mese che manda la mensa; controlla e salva."],
-  admin:["<b>Utenti</b>: approva le registrazioni e scegli il ruolo. Agli addetti attiva le <b>notifiche</b>: sono loro a ricevere le email per la mensa.",
+  admin:["<b>Utenti</b>: approva le registrazioni e scegli il ruolo. Ai gestori mensa attiva le <b>notifiche</b>: sono loro a ricevere le email per la mensa.",
     "<b>Reimposta PIN</b> dà un PIN provvisorio; tutti gli accessi della persona vengono chiusi.",
-    "<b>Impostazioni</b>: giorno e ora di chiusura, orario di annullamento, variazioni sì/no, limiti piatti, email.",
-    "<b>Report</b>: per mese, pasti e annullamenti dopo l'invio per persona. <b>Scarica Excel</b>: filtri attivi e stampa già impostata in orizzontale.",
+    "<b>Impostazioni</b>: giorno e ora di chiusura, orario di annullamento, orario di approvazione, orario del foglio di controllo, variazioni sì/no, limiti piatti, email.",
+    "<b>Report</b>: per mese, pasti e annullamenti dopo l'invio per persona, più il foglio <b>Variazioni e approvazioni</b>. <b>Scarica Excel</b>: filtri attivi e stampa già impostata in orizzontale.",
     "Tutti i dati stanno nel Foglio Google della mensa."]
 };
 function openGuida(tab){
   if(tab)S.guidaTab=tab;
   const sh=sheet(`<div class="top"><div><div class="eyebrow">Guida</div><h2>Mensa Omet</h2></div><button class="btn sm x" data-close aria-label="Chiudi">✕</button></div>
-    <div class="guida" style="display:grid;gap:14px"><div class="pills">${[["ordinare","Prenotare"],["installare","Installare l'app"],["addetti","Addetti mensa"],["admin","Amministratore"]].map(([k,t])=>`<button data-g="${k}" aria-pressed="${S.guidaTab===k}">${t}</button>`).join("")}</div>
+    <div class="guida" style="display:grid;gap:14px"><div class="pills">${[["ordinare","Prenotare"],["installare","Installare l'app"],["addetti","Gestori mensa"],["admin","Amministratore"]].map(([k,t])=>`<button data-g="${k}" aria-pressed="${S.guidaTab===k}">${t}</button>`).join("")}</div>
     <ol>${GUIDA[S.guidaTab].map(t=>`<li><span>${t}</span></li>`).join("")}</ol></div>`);
   sh.root.querySelectorAll("[data-g]").forEach(b=>b.onclick=()=>{sh.close();openGuida(b.dataset.g)});
 }
 
 /* ===================== gestione ===================== */
-function tabsFor(){const t=[["riep","Riepilogo"],["arch","Archivio"],["menu","Menu"]];if(S.me.ruolo==="admin")t.push(["utenti","Utenti"],["imp","Impostazioni"],["rep","Report"]);return t}
+function tabsFor(){const t=[["riep","Riepilogo"],["rich","Richieste"],["arch","Archivio"],["menu","Menu"]];if(S.me.ruolo==="admin")t.push(["utenti","Utenti"],["imp","Impostazioni"],["rep","Report"]);return t}
 function renderAdmin(app){
   const T=tabsFor(); if(!T.some(t=>t[0]===S.tab))S.tab="riep";
-  app.innerHTML=`<section style="display:grid;gap:4px"><div class="eyebrow">Gestione mensa</div><h2>${S.me.ruolo==="admin"?"Amministratore":"Addetto mensa"}</h2></section>
-   <nav class="tabs" role="tablist">${T.map(([k,t])=>`<button role="tab" data-t="${k}" aria-selected="${S.tab===k}">${t}${k==="utenti"&&S.inAttesa?` <span class="badge warn">${S.inAttesa}</span>`:""}</button>`).join("")}</nav>
+  app.innerHTML=`<section style="display:grid;gap:4px"><div class="eyebrow">Gestione mensa</div><h2>${S.me.ruolo==="admin"?"Amministratore":"Gestore mensa"}</h2></section><div id="banners" style="display:grid;gap:8px">${bannerGestore()}</div>
+   <nav class="tabs" role="tablist">${T.map(([k,t])=>`<button role="tab" data-t="${k}" aria-selected="${S.tab===k}">${t}${k==="utenti"&&S.inAttesa?` <span class="badge warn">${S.inAttesa}</span>`:""}${k==="rich"?` <span class="badge warn">${S.richAtt||""}</span>`:""}</button>`).join("")}</nav>
    <div id="tabc" style="display:grid;gap:14px"><div class="empty">Caricamento…</div></div>`;
   app.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>{S.tab=b.dataset.t;renderAdmin(app)});
   const c=$("#tabc");
-  ({riep:tRiep,arch:tArch,menu:tMenu,utenti:tUtenti,imp:tImp,rep:tRep})[S.tab](c).catch(e=>{c.innerHTML=`<div class="avviso bad">✗ ERRORE&nbsp; ${esc(e.message)}</div>`});
+  bindBanner();
+  ({riep:tRiep,rich:tRich,arch:tArch,menu:tMenu,utenti:tUtenti,imp:tImp,rep:tRep})[S.tab](c).catch(e=>{c.innerHTML=`<div class="avviso bad">✗ ERRORE&nbsp; ${esc(e.message)}</div>`});
 }
 
 /* ---- riepilogo: settimana (per il fornitore) e giorno ---- */
-const MODI={auto:"email automatica",app:"PDF",whatsapp:"WhatsApp",copia:"testo copiato","chiusura settimana":"email di chiusura agli addetti"};
+const MODI={auto:"email automatica",app:"PDF",whatsapp:"WhatsApp",copia:"testo copiato",segnato:"segnato come inviato","chiusura settimana":"email di chiusura ai gestori"};
 const descInvio=i=>(i.da==="automatico"?"":esc(i.da)+" · ")+esc(MODI[i.modo]||i.modo)+" · "+i.pasti+(i.pasti===1?" pasto":" pasti")+(i.file?` · <a href="${esc(i.file)}" target="_blank" rel="noopener">PDF su Drive</a>`:"");
 const tuttiGiorni=()=>S.settimane.flatMap(w=>w.giorni);
 const plur=(n,a,b)=>n+" "+(n===1?a:b);
 function bottoniInvio(r, extra){
-  return `<div class="row"><button class="btn primary" id="pdf">⎙ PDF</button><button class="btn" id="cpw">Copia per WhatsApp</button><a class="btn" id="wa" href="https://wa.me/?text=${encodeURIComponent(r.whatsapp)}" target="_blank" rel="noopener">🟢 Invia su WhatsApp</a><button class="btn" id="mail">✉ Invia via email a me</button>${extra||""}</div>`;
+  return `<div class="row"><button class="btn primary" id="pdf">⎙ PDF per la mensa</button><button class="btn" id="cpw">Copia per WhatsApp</button><a class="btn" id="wa" href="https://wa.me/?text=${encodeURIComponent(r.whatsapp)}" target="_blank" rel="noopener">🟢 Invia su WhatsApp</a><button class="btn" id="mail">✉ Invia via email a me</button>${extra||""}</div>`;
 }
 function legaInvio(c, r, chiave, rifai){
   const traccia=modo=>{api("registraInvio",Object.assign({modo},chiave)).then(rifai).catch(e=>toast("Invio non registrato: "+e.message))};
@@ -692,10 +745,10 @@ async function tRiepSett(c){
   const st=r.aperta?`<span class="badge ok">✓ Aperta fino a ${esc(quando(r.chiude))}</span>`:r.chiusa?`<span class="badge info">i Inviata${r.inviataIl?" il "+esc(tsIt(r.inviataIl)):""}</span>`:`<span class="badge neu">— Si apre ${esc(quando(r.apre))}</span>`;
   c.innerHTML=`<div class="box">
     <div class="row"><label class="f" style="flex:1;min-width:200px">Settimana<select id="rw">${S.settimane.map(w=>`<option value="${w.lunedi}" ${w.lunedi===S.riepW?"selected":""}>${w.settimana?"Sett. "+esc(w.settimana)+" · ":""}${esc(U.periodo(w.lunedi))}</option>`).join("")}</select></label>${st}</div>
-    <div class="tiles"><div class="tile"><div class="eyebrow">Pasti settimana</div><div class="big">${tot}</div></div>${r.giorni.map(g=>`<div class="tile ${g.pasti?"":"warn"}"><div class="eyebrow">${GIORNI[pd(g.data).getDay()]} ${it(g.data).slice(0,5)}</div><div class="big">${g.pasti}</div><div class="muted" style="font-size:12px">acqua ${g.acqua.N}N · ${g.acqua.G}G</div></div>`).join("")}</div>
-    <div class="wk">${r.giorni.map(g=>`<div class="c"><div class="eyebrow" style="color:var(--omet)">${GIORNI_L[pd(g.data).getDay()]} ${it(g.data).slice(0,5)} · ${plur(g.pasti,"pasto","pasti")}</div>${CATS.map(([k])=>g.piatti.filter(x=>x.cat===k&&g.cod[x.c]).map(x=>`<div class="l"><span><span class="code">${esc(x.c)}</span> ${esc(cap(x.n))}</span><b>${g.cod[x.c]}</b></div>`).join("")).join("")||'<div class="muted" style="font-size:13px">Nessun pasto</div>'}</div>`).join("")}</div>
+    <div class="tiles"><div class="tile"><div class="eyebrow">Pasti settimana</div><div class="big">${tot}</div></div>${r.giorni.map(g=>`<div class="tile ${g.pasti?"":"warn"}"><div class="eyebrow">${GIORNI[pd(g.data).getDay()]} ${it(g.data).slice(0,5)}</div><div class="big">${g.pasti}</div></div>`).join("")}</div>
+    <div class="wk">${r.giorni.map(g=>`<div class="c"><div class="eyebrow" style="color:var(--omet)">${GIORNI_L[pd(g.data).getDay()]} ${it(g.data).slice(0,5)} · ${plur(g.pasti,"pasto","pasti")}</div>${CATS.map(([k,lab])=>{const l=g.righe.filter(x=>x.gruppo===k);return l.length?`<div class="sub">${lab}</div>`+l.map(x=>`<div class="l"><span><span class="code">${esc(x.c)}</span> ${esc(x.label)}</span><b>${x.n}</b></div>`).join(""):""}).join("")||'<div class="muted" style="font-size:13px">Nessun pasto</div>'}${g.pasti?`<div class="sub">Acqua</div><div class="l"><span>Naturale</span><b>${g.acqua.N}</b></div><div class="l"><span>Gassata</span><b>${g.acqua.G}</b></div>`:""}</div>`).join("")}</div>
     ${bottoniInvio(r)}
-    <div class="muted" style="font-size:13px">È lo stesso ordine che parte da solo agli addetti ${esc(GG[S.cfg.chiusuraGiorno]||"")} alle ${esc(S.cfg.chiusuraOra)}. Qui puoi rigenerarlo o rimandarlo quando serve.</div></div>`;
+    <div class="muted" style="font-size:13px">È lo stesso ordine che parte da solo ai gestori mensa ${esc(GG[S.cfg.chiusuraGiorno]||"")} alle ${esc(S.cfg.chiusuraOra)}. Qui puoi rigenerarlo o rimandarlo quando serve.</div></div>`;
   $("#rw").onchange=e=>{S.riepW=e.target.value;tRiep(c.parentElement)};
   legaInvio(c,r,{lunedi:S.riepW},()=>{});
 }
@@ -703,34 +756,62 @@ async function tRiepGiorno(c){
   const days=tuttiGiorni(); const t=oggi();
   if(!S.riepDay||!days.includes(S.riepDay))S.riepDay=days.find(d=>d>=t)||days[days.length-1];
   const day=S.riepDay; const r=await api("riepilogo",{data:day});
-  const codes=r.piatti.map(x=>x.c);
   const g={data:day,piatti:r.piatti,stato:r.stato};
-  const stB={aperto:'<span class="badge ok">✓ Prenotazioni aperte</span>',futuro:'<span class="badge neu">— Non ancora aperto</span>',chiuso:`<span class="badge info">i Ordine inviato · annulli fino alle ${esc(r.cutoff)}</span>`,concluso:'<span class="badge neu">— Concluso</span>'}[r.stato];
+  const stB={aperto:'<span class="badge ok">✓ Prenotazioni aperte</span>',futuro:'<span class="badge neu">— Non ancora aperto</span>',chiuso:`<span class="badge info">i Ordine inviato · richieste fino alle ${esc(r.cutoff)}, poi annullano solo i gestori</span>`,concluso:'<span class="badge neu">— Concluso</span>'}[r.stato];
   c.innerHTML=`<div class="box">
    <div class="row"><label class="f" style="flex:1;min-width:200px">Giorno<select id="rd">${days.map(d=>`<option value="${d}" ${d===day?"selected":""}>${GIORNI_L[pd(d).getDay()]} ${it(d)}</option>`).join("")}</select></label>${stB}</div>
    <div class="tiles"><div class="tile"><div class="eyebrow">Pasti</div><div class="big">${r.ok.length}</div></div>
      ${r.ospiti?`<div class="tile"><div class="eyebrow">Di cui ospiti</div><div class="big">${r.ospiti}</div></div>`:""}
-     <div class="tile"><div class="eyebrow">Acqua N / G</div><div class="big">${r.acqua.N} / ${r.acqua.G}</div></div>
+     <div class="tile"><div class="eyebrow">Acqua naturale</div><div class="big">${r.acqua.N}</div></div>
+     <div class="tile"><div class="eyebrow">Acqua gassata</div><div class="big">${r.acqua.G}</div></div>
      <div class="tile ${r.annullati.length?"warn":""}"><div class="eyebrow">Annullati</div><div class="big">${r.annullati.length}</div></div>
      <div class="tile ${r.comunicato?"ok":"warn"}"><div class="eyebrow">${r.comunicato&&r.comunicato.motivo==="riferimento"?"Totale di riferimento":"Comunicato alla mensa"}</div><div style="font-size:13px;font-weight:600;margin-top:4px">${r.comunicato?"✓ "+esc(tsIt(r.comunicato.ts))+"<br><span class='muted' style='font-weight:400'>"+(r.comunicato.differenze==="nessuna differenza"?"nessuna differenza da allora":"da allora: "+esc(r.comunicato.differenze))+"</span>":"⚠ non ancora"}</div></div></div>
-   <div class="tot">${CATS.map(([k,lab])=>`<div class="c"><div class="eyebrow">${lab}</div>${r.piatti.filter(x=>x.cat===k).map(x=>`<div class="l ${r.conteggi[x.c]?"":"z"}"><span><span class="code">${esc(x.c)}</span> ${esc(cap(x.n))}</span><b>${r.conteggi[x.c]||"–"}</b></div>`).join("")}</div>`).join("")}</div>
-   ${bottoniInvio(r)}
+   <div class="tot">${CATS.map(([k,lab])=>`<div class="c"><div class="eyebrow">${lab}</div>${r.righe.filter(x=>x.gruppo===k).map(x=>`<div class="l ${x.n?"":"z"}"><span><span class="code">${esc(x.c)}</span> ${esc(x.label)}</span><b>${x.n||"–"}</b></div>`).join("")}</div>`).join("")}</div>
+   ${r.invio&&r.invio.daInviare?`<div class="avviso warn">⚠ ORDINE AGGIORNATO DA INVIARE ALLA MENSA · ultima variazione ${esc(tsIt(r.invio.ultimoCambio))}${r.invio.ultimoInvio?" · ultimo invio "+esc(tsIt(r.invio.ultimoInvio)):""}. Mandalo con i pulsanti qui sotto (PDF, WhatsApp, copia) oppure, se l'hai già mandato in altro modo, <button class="btn sm" id="segna">✓ Segna come inviato</button></div>`
+     :r.invio&&r.invio.ultimoInvio?`<div class="avviso ok">✓ Ordine aggiornato inviato alla mensa il ${esc(tsIt(r.invio.ultimoInvio))}.</div>`:""}
+   ${bottoniInvio(Object.assign({},r,{html:r.htmlMensa,titolo:r.titoloMensa}),`<button class="btn" id="pdfint">⎙ PDF interno (con i nomi)</button><button class="btn" id="pdfctl">⎙ Foglio di controllo</button>`)}
    ${r.invii.length?`<details><summary class="muted" style="cursor:pointer;font-size:13px">Invii registrati (${r.invii.length})</summary><div class="kv" style="margin-top:6px">${r.invii.map(i=>`<dt>${esc(tsIt(i.ts))}</dt><dd>${descInvio(i)}</dd>`).join("")}</div></details>`:""}
   </div>
   <div class="box"><div class="row" style="justify-content:space-between"><h3>Foglio nominativo</h3><span class="muted" style="font-size:13px">${plur(r.ok.length,"persona","persone")}</span></div>
-   ${r.ok.length?`<div class="scroll"><table><thead><tr><th>Nome</th>${codes.map(k=>`<th class="code" style="text-align:center;padding:6px 3px">${esc(k)}</th>`).join("")}<th>Acqua</th><th>Nota</th><th></th></tr></thead>
-   <tbody>${r.ok.map(o=>`<tr><td>${esc(o.username)}${o.inseritoDa?` <span class="badge ${o.ospite?"flag":"warn"}">${o.ospite?"⚑ ospite":"⚠ da "+esc(o.inseritoDa)}</span>`:""}</td>${codes.map(k=>`<td class="x" style="padding:6px 3px">${o.scelte.includes(k)?"✕":""}</td>`).join("")}<td class="x">${o.acqua||"N"}</td><td>${esc(o.nota)}</td><td><button class="btn sm" data-ed="${esc(o.uid)}">Modifica</button></td></tr>`).join("")}</tbody></table></div>`:'<div class="muted">Nessun ordine per questo giorno.</div>'}
+   ${r.ok.length?`<div class="scroll"><table class="nomi"><thead><tr><th>Nome</th>${CATS.map(([k])=>`<th>${SING[k]}</th>`).join("")}<th>Acqua</th><th></th></tr></thead>
+   <tbody>${r.ok.map(o=>`<tr><td><b>${esc(o.username)}</b>${o.inseritoDa?` <span class="badge ${o.ospite?"flag":"warn"}">${o.ospite?"⚑ ospite":"⚠ da "+esc(o.inseritoDa)}</span>`:""}</td>${CATS.map(([k])=>`<td>${esc(o.gruppi[k])||'<span class="muted">—</span>'}</td>`).join("")}<td>${o.acqua==="G"?"gassata":"naturale"}</td><td><button class="btn sm" data-ed="${esc(o.uid)}">Modifica</button></td></tr>`).join("")}</tbody></table></div>`:'<div class="muted">Nessun ordine per questo giorno.</div>'}
    <div class="row"><label class="f" style="flex:1;min-width:200px">Pasto per un collega${r.stato==="chiuso"||r.stato==="concluso"?" (dopo l'invio: parte la variazione)":""}<select id="addp"><option value="">Scegli una persona</option>${r.senzaOrdine.concat(r.annullati.map(o=>({id:o.uid,username:o.username+" (annullato)"}))).map(p=>`<option value="${esc(p.id)}">${esc(p.username)}</option>`).join("")}</select></label>
      <button class="btn" id="addb" style="align-self:end">Inserisci</button><button class="btn" id="osp" style="align-self:end">⚑ Ospite</button></div></div>
-  <div class="box"><h3>Modifiche dopo l'invio dell'ordine</h3>
-   ${r.registro.filter(x=>x.dopoChiusura).length?`<div class="scroll"><table><thead><tr><th>Quando</th><th>Utente</th><th>Cosa</th><th>Email</th><th class="hide-sm">Dettaglio</th></tr></thead><tbody>${r.registro.filter(x=>x.dopoChiusura).map(x=>`<tr><td>${esc(tsIt(x.ts).slice(0,16))}</td><td>${esc(x.username)}${x.da!==x.username?` <span class="muted">(da ${esc(x.da)})</span>`:""}</td><td>${{modifica:"Variazione",annulla:"Annullamento",ripristina:"Aggiunto",prenota:"Aggiunto"}[x.azione]||x.azione}</td><td>${x.notificato?'<span class="badge ok">✓ inviata</span>':'<span class="badge warn">⚠ in coda</span>'}</td><td class="hide-sm" style="white-space:normal;min-width:220px;font-size:13px">${esc(x.prima)} → ${esc(x.dopo)}</td></tr>`).join("")}</tbody></table></div>`:'<div class="muted">Nessuna modifica dopo l\'invio.</div>'}</div>`;
+  <div class="box"><h3>Storico del giorno</h3><div class="muted" style="font-size:13px">Richieste, approvazioni, annullamenti, variazioni e invii alla mensa: tutto resta tracciato (anche nel report del mese).</div>
+   ${(r.storico||[]).length?`<div class="scroll"><table><thead><tr><th>Quando</th><th>Evento</th><th>Da</th><th class="hide-sm">Dettaglio</th></tr></thead><tbody>${r.storico.map(x=>`<tr><td>${esc(tsIt(x.ts))}</td><td>${esc(x.cosa)}</td><td>${esc(x.chi)}</td><td class="hide-sm" style="white-space:normal;min-width:200px;font-size:13px">${esc(x.det)}</td></tr>`).join("")}</tbody></table></div>`:'<div class="muted">Nessun evento.</div>'}</div>
+  <div class="box"><h3>Email di variazione ai gestori</h3>
+   ${r.registro.filter(x=>x.dopoChiusura).length?`<div class="scroll"><table><thead><tr><th>Quando</th><th>Utente</th><th>Cosa</th><th>Email</th><th class="hide-sm">Dettaglio</th></tr></thead><tbody>${r.registro.filter(x=>x.dopoChiusura).map(x=>`<tr><td>${esc(tsIt(x.ts))}</td><td>${esc(x.username)}${x.da!==x.username?` <span class="muted">(da ${esc(x.da)})</span>`:""}</td><td>${{modifica:"Variazione",annulla:"Annullamento",ripristina:"Aggiunto",prenota:"Aggiunto"}[x.azione]||x.azione}</td><td>${x.notificato?'<span class="badge ok">✓ inviata</span>':'<span class="badge warn">⚠ in coda</span>'}</td><td class="hide-sm" style="white-space:normal;min-width:220px;font-size:13px">${esc(x.prima)} → ${esc(x.dopo)}</td></tr>`).join("")}</tbody></table></div>`:'<div class="muted">Nessuna modifica dopo l\'invio.</div>'}</div>`;
   $("#rd").onchange=e=>{S.riepDay=e.target.value;tRiep(c.parentElement)};
-  legaInvio(c,r,{data:day},()=>{});
+  const rifai=()=>{aggiornaGestore();tRiep(c.parentElement)};
+  legaInvio(c,Object.assign({},r,{html:r.htmlMensa,titolo:r.titoloMensa}),{data:day},rifai);
+  $("#pdfint").onclick=()=>stampaDoc(r.html,r.titolo);
+  $("#pdfctl").onclick=async()=>{try{const d=await api("documento",{data:day,controllo:true});stampaDoc(d.html,d.titolo)}catch(e){toast(e.message)}};
+  if($("#segna"))$("#segna").onclick=async()=>{try{await api("registraInvio",{data:day,modo:"segnato"});toast("Segnato come inviato ✓");rifai()}catch(e){toast(e.message)}};
   c.querySelectorAll("[data-ed]").forEach(b=>b.onclick=()=>{const o=r.ok.find(x=>x.uid===b.dataset.ed);openDay(g,{uid:o.uid,username:o.username,ospite:o.ospite,ordine:o})});
   $("#addb").onclick=()=>{const v=$("#addp").value;if(!v){toast("Scegli una persona");return}const ex=r.annullati.find(o=>o.uid===v);const p=r.senzaOrdine.find(x=>x.id===v)||{username:ex.username};openDay(g,{uid:v,username:p.username,ordine:ex||null})};
   $("#osp").onclick=()=>openDay(g,{ospite:true,username:"",ordine:null});
 }
 
+/* ---- richieste di annullamento ---- */
+async function tRich(c){
+  const r=await api("richieste"); S.richAtt=r.richieste.filter(x=>x.stato==="attesa").length;
+  document.querySelectorAll('.tabs [data-t="rich"] .badge').forEach(x=>x.textContent=S.richAtt||"");
+  const att=r.richieste.filter(x=>x.stato==="attesa"), alt=r.richieste.filter(x=>x.stato!=="attesa");
+  const SB={approvata:'<span class="badge ok">✓ Approvata</span>',rifiutata:'<span class="badge bad">✗ Rifiutata</span>',scaduta:'<span class="badge neu">— Scaduta</span>',ritirata:'<span class="badge neu">— Ritirata</span>'};
+  c.innerHTML=`<div class="box"><h3>Da approvare</h3><div class="muted" style="font-size:13px">Vale il primo gestore che risponde (qui o dal link nell'email). Senza risposta entro le <b>${esc(r.scadenza)}</b> del giorno la richiesta scade e il pasto resta.</div>
+    ${att.length?att.map(x=>`<div class="box" style="gap:8px"><div class="row" style="justify-content:space-between"><b>${esc(x.username)}</b><span class="muted" style="font-size:13px">richiesta del ${esc(tsIt(x.ts))}</span></div>
+      <div>${GIORNI_L[pd(x.data).getDay()]} ${it(x.data)} · ${esc(x.pasto)}</div>
+      <label class="f">Motivo (facoltativo)<input data-mot="${x.id}" maxlength="200" placeholder="es. ordine già consegnato"></label>
+      <div class="row"><button class="btn primary" data-ap="${x.id}">✓ Approva</button><button class="btn danger" data-rf="${x.id}">✗ Rifiuta</button></div></div>`).join(""):'<div class="muted">Nessuna richiesta in attesa.</div>'}</div>
+   <div class="box"><h3>Ultimi 7 giorni</h3>${alt.length?`<div class="scroll"><table><thead><tr><th>Giorno</th><th>Utente</th><th>Esito</th><th>Da</th><th class="hide-sm">Quando / motivo</th></tr></thead><tbody>${alt.map(x=>`<tr><td>${GIORNI[pd(x.data).getDay()]} ${it(x.data).slice(0,5)}</td><td>${esc(x.username)}</td><td>${SB[x.stato]||esc(x.stato)}</td><td>${esc(x.stato==="scaduta"?"":x.gestitoDa)}</td><td class="hide-sm" style="font-size:13px">${esc(tsIt(x.gestitoIl))}${x.motivo?" · "+esc(x.motivo):""}</td></tr>`).join("")}</tbody></table></div>`:'<div class="muted">Nessuna.</div>'}</div>`;
+  const fai=async(id,esito)=>{const mot=(c.querySelector(`[data-mot="${id}"]`)||{}).value||"";
+    try{const x=await api("gestisciRichiesta",{id,esito,motivo:mot});toast(esito==="approva"?"Approvata · pasto annullato":"Rifiutata · il pasto resta");
+      await tRich(c);aggiornaGestore();
+      condividi(esito==="approva"?"Annullamento approvato":"Richiesta rifiutata",(esito==="approva"?"Ricorda di inviare alla mensa l'ordine aggiornato (Riepilogo → Giorno). ":"")+"Manda la risposta a "+esc(x.richiesta.username)+" (l'email parte da sola se l'ha inserita):",x.conferma,esito==="approva"?"Conferma annullamento pasto":"Richiesta di annullamento non accettata")}
+    catch(e){toast(e.message);tRich(c)}};
+  c.querySelectorAll("[data-ap]").forEach(b=>b.onclick=()=>{b.disabled=true;fai(b.dataset.ap,"approva")});
+  c.querySelectorAll("[data-rf]").forEach(b=>b.onclick=()=>{b.disabled=true;fai(b.dataset.rf,"rifiuta")});
+}
 async function copia(t){
   try{ if(navigator.clipboard&&window.isSecureContext){ await navigator.clipboard.writeText(t); return true; } }catch(e){}
   try{ const a=document.createElement("textarea"); a.value=t; a.setAttribute("readonly",""); a.style.cssText="position:fixed;top:0;left:0;opacity:0;font-size:16px";
@@ -740,7 +821,7 @@ function showText(t){const sh=sheet(`<div class="top"><h2>Testo per la mensa</h2
 function stampaDoc(html, titolo){
   const pa=$("#printarea"); const m=html.match(/<body>([\s\S]*)<\/body>/); pa.innerHTML=(m?m[1]:html);
   let st=document.getElementById("pagestyle"); if(!st){st=document.createElement("style");st.id="pagestyle";document.head.appendChild(st)}
-  st.textContent="@page{size:A4 landscape;margin:10mm} #printarea .foglio{page-break-after:always} #printarea .foglio:last-child{page-break-after:auto} #printarea *{-webkit-print-color-adjust:exact;print-color-adjust:exact}";
+  st.textContent="@page{size:A4 portrait;margin:10mm} #printarea .foglio{page-break-after:always} #printarea .foglio:last-child{page-break-after:auto} #printarea *{-webkit-print-color-adjust:exact;print-color-adjust:exact}";
   const old=document.title; document.title=titolo;
   try{navigator.clipboard&&navigator.clipboard.writeText(titolo).catch(()=>{})}catch(e){}
   const done=()=>{document.title=old;pa.innerHTML="";window.removeEventListener("afterprint",done)};
@@ -768,7 +849,7 @@ async function tArch(c){
       $("#gostampa").onclick=()=>{sh.close();stampaDoc(d.html,d.titolo)}}catch(e){toast(e.message)}};
   $("#acsv").onclick=async()=>{try{
     const L=[["Giorno","Utente","Stato","Piatti","Acqua","Nota","Inserito da","Dopo l'invio","Ultima modifica"]];
-    for(const g of a.giorni){const r=await api("riepilogo",{data:g.data});r.ok.concat(r.annullati).forEach(o=>L.push([it(g.data),o.username,o.stato==="ok"?"Prenotato":"Annullato",o.scelte.join(" "),o.acqua||"N",o.nota,o.inseritoDa,o.tardivo?"SI":"",tsIt(o.modificato)]))}
+    for(const g of a.giorni){const r=await api("riepilogo",{data:g.data});r.ok.concat(r.annullati).forEach(o=>L.push([it(g.data),o.username,o.stato==="ok"?"Prenotato":"Annullato",o.scelte.join(", "),o.acqua||"N","",o.inseritoDa,o.tardivo?"SI":"",tsIt(o.modificato)]))}
     L.push([],["Generato da "+S.me.username+" il "+new Date().toLocaleString("it-IT")]);
     scarica("mensa_settimana_"+S.archW+".csv","﻿"+L.map(r=>r.map(v=>{v=String(v??"");return /[;"\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v}).join(";")).join("\r\n"))}catch(e){toast(e.message)}};
 }
@@ -809,7 +890,7 @@ function drawDraft(){
      ${(w.note||[]).length?`<div class="muted" style="font-size:13px;margin-top:6px">Note: ${w.note.map(esc).join(" · ")}</div>`:""}
      ${w.giorni.map((g,gi)=>`<div style="display:grid;gap:6px;margin-top:12px"><div class="row"><label class="f">Data<input type="date" data-gd="${wi}.${gi}" value="${g.data}"></label><span class="muted" style="align-self:end;margin-bottom:8px">${GIORNI_L[pd(g.data).getDay()]} · ${g.piatti.length} piatti</span><button class="btn sm danger" data-gdel="${wi}.${gi}" style="align-self:end;margin-bottom:4px;margin-left:auto">Togli giorno</button></div>
       <div class="mgrid"><div class="mrow eyebrow"><span>Tipo</span><span>Cod.</span><span>Piatto</span><span class="opt">Allerg.</span><span class="opt" title="panna">P</span><span class="opt" title="maiale">**</span><span></span></div>
-      ${g.piatti.map((x,pi)=>`<div class="mrow" data-k="${wi}.${gi}.${pi}"><select data-f="cat">${CATS.map(([k,l])=>`<option value="${k}" ${x.cat===k?"selected":""}>${l.slice(0,7)}</option>`).join("")}</select><input data-f="c" value="${esc(x.c)}" maxlength="2"><input data-f="n" value="${esc(x.n)}"><input data-f="all" class="opt" value="${esc(x.all)}"><input type="checkbox" data-f="panna" class="opt" ${x.panna?"checked":""}><input type="checkbox" data-f="maiale" class="opt" ${x.maiale?"checked":""}><button class="btn sm" data-del aria-label="Togli piatto">✕</button></div>`).join("")}
+      ${g.piatti.map((x,pi)=>`<div class="mrow" data-k="${wi}.${gi}.${pi}"><select data-f="cat">${CATS_MENU.map(([k,l])=>`<option value="${k}" ${x.cat===k?"selected":""}>${l}</option>`).join("")}</select><input data-f="c" value="${esc(x.c)}" maxlength="2"><input data-f="n" value="${esc(x.n)}"><input data-f="all" class="opt" value="${esc(x.all)}"><input type="checkbox" data-f="panna" class="opt" ${x.panna?"checked":""}><input type="checkbox" data-f="maiale" class="opt" ${x.maiale?"checked":""}><button class="btn sm" data-del aria-label="Togli piatto">✕</button></div>`).join("")}
       <button class="btn sm" data-add="${wi}.${gi}" style="justify-self:start">+ Aggiungi piatto</button></div></div>`).join("")}</details>`).join("")}
    <div class="row"><button class="btn primary" id="sv">Salva e pubblica</button><button class="btn" id="dx">Scarta</button></div></div>`;
   const key=s=>s.split(".").map(Number);
@@ -831,7 +912,7 @@ async function tUtenti(c){
   const r=await api("utenti");const us=r.utenti;
   S.inAttesa=us.filter(u=>u.stato==="attesa").length;
   const att=us.filter(u=>u.stato==="attesa"), altri=us.filter(u=>u.stato!=="attesa");
-  const RU={utente:"Utente",addetto:"Addetto mensa",admin:"Amministratore"};
+  const RU={utente:"Utente",addetto:"Gestore mensa",admin:"Amministratore"};
   c.innerHTML=`${att.length?`<div class="box"><h3>Da approvare (${att.length})</h3><div class="list">${att.map(u=>`<div class="item" data-id="${esc(u.id)}"><div class="h"><b>${esc(u.username)}</b><span class="badge warn">⚠ in attesa</span></div>
       <div class="muted" style="font-size:13px">Registrato il ${esc(tsIt(u.creato))}${u.email?" · "+esc(u.email):" · senza email"}</div>
       <div class="row"><select data-r>${Object.entries(RU).map(([k,v])=>`<option value="${k}">${v}</option>`).join("")}</select><button class="btn primary sm" data-a="approva">✓ Approva</button><button class="btn danger sm" data-a="rifiuta">✗ Rifiuta</button></div></div>`).join("")}</div></div>`:""}
@@ -861,14 +942,17 @@ async function tImp(c){
   c.innerHTML=`<div class="box"><h3>Settimana e orari</h3>
    <div class="grid2"><label class="f">Le prenotazioni della settimana dopo si aprono (settimana prima)${gsel("iap",C.aperturaGiorno)}</label>
      <label class="f">…e si chiudono (settimana prima)${gsel("icg",C.chiusuraGiorno)}</label>
-     <label class="f">Ora di chiusura (parte l'ordine agli addetti)<input type="time" id="ico" value="${esc(C.chiusuraOra)}"></label>
-     <label class="f">Dopo la chiusura: annullamento entro le (giorno stesso)<input type="time" id="ic" value="${esc(C.cutoff)}"></label></div>
+     <label class="f">Ora di chiusura (parte l'ordine ai gestori mensa)<input type="time" id="ico" value="${esc(C.chiusuraOra)}"></label>
+     <label class="f">Dopo la chiusura: richiesta di annullamento entro le (giorno stesso; dopo solo i gestori)<input type="time" id="ic" value="${esc(C.cutoff)}"></label>
+     <label class="f">I gestori approvano le richieste entro le (poi scadono e il pasto resta)<input type="time" id="iapf" value="${esc(C.approvazioniFino||"10:00")}"></label>
+     <label class="f">Foglio di controllo consegna (email a gestori e amministrazione) alle<input type="time" id="ictl" value="${esc(C.orarioControllo||"11:00")}"></label></div>
    <label class="chk"><input type="checkbox" id="ivar" ${C.variazioni?"checked":""}> Dopo la chiusura permetti anche di <b>cambiare i piatti</b> (non solo annullare), entro lo stesso orario</label>
    <div class="eyebrow">Piatti massimi per persona</div>
    <div class="row">${CATS.map(([k,lab])=>`<label class="f">${lab}<input type="number" min="0" max="5" data-l="${k}" value="${L[k]}" style="width:90px"></label>`).join("")}<label class="f">Minimo piatti<input type="number" min="1" max="5" id="imin" value="${C.minPiatti}" style="width:90px"></label></div>
+   <label class="f">Varianti (una riga per piatto: codice = scelte separate da virgola, la prima è quella proposta)<textarea id="ivari" rows="3" style="font-family:var(--f-code)">${esc(Object.entries(C.varianti||{}).map(([k,v])=>k+" = "+v.join(", ")).join("\n"))}</textarea></label>
    <label class="chk"><input type="checkbox" id="iapp" ${C.approvazione?"checked":""}> I nuovi utenti devono essere approvati</label></div>
   <div class="box"><h3>Email</h3>
-   <div class="kv"><dt>Email per la mensa a</dt><dd>${r.addetti.length?r.addetti.map(esc).join(", "):'<span class="badge warn">⚠ nessuno</span> attiva le notifiche a un addetto (Utenti) o scrivi una casella qui sotto'}</dd></div>
+   <div class="kv"><dt>Email per la mensa a</dt><dd>${r.addetti.length?r.addetti.map(esc).join(", "):'<span class="badge warn">⚠ nessuno</span> attiva le notifiche a un gestore mensa (Utenti) o scrivi una casella qui sotto'}</dd></div>
    <label class="chk"><input type="checkbox" id="inw" ${C.nominativoWhatsApp?"checked":""}> Nel testo per la mensa metti anche l'elenco dei nomi</label>
    <label class="chk"><input type="checkbox" id="iwe" ${C.mailWeekend?"checked":""}> Manda email anche il sabato e la domenica</label>
    <div class="grid2"><label class="f">Altre caselle per l'ordine e le variazioni (separate da virgola)<input id="iex" value="${esc(C.emailExtra)}"></label>
@@ -878,7 +962,8 @@ async function tImp(c){
    <div class="row"><button class="btn sm" id="itest">Email di prova a me</button><button class="btn sm" id="itick">Esegui ora i lavori a orario</button></div>
    ${DEMO?demoPosta():`<div class="scroll" style="max-height:300px"><table><thead><tr><th>Quando</th><th>A</th><th>Oggetto</th><th>Esito</th></tr></thead><tbody>${r.posta.map(p=>`<tr><td>${esc(tsIt(p.ts))}</td><td>${esc(p.a)}</td><td>${esc(p.oggetto)}</td><td>${p.esito==="inviata"?'<span class="badge ok">✓</span>':`<span class="badge bad">✗</span> ${esc(p.esito)}`}</td></tr>`).join("")}</tbody></table></div>`}</div>`;
   $("#is").onclick=async()=>{const lim={};c.querySelectorAll("[data-l]").forEach(i=>lim[i.dataset.l]=Math.max(0,+i.value||0));
-    const v={aperturaGiorno:+$("#iap").value,chiusuraGiorno:+$("#icg").value,chiusuraOra:$("#ico").value||"17:00",cutoff:$("#ic").value||"09:30",variazioni:$("#ivar").checked,
+    const v={aperturaGiorno:+$("#iap").value,chiusuraGiorno:+$("#icg").value,chiusuraOra:$("#ico").value||"17:00",cutoff:$("#ic").value||"09:30",approvazioniFino:$("#iapf").value||"10:00",orarioControllo:$("#ictl").value||"11:00",variazioni:$("#ivar").checked,
+      varianti:Object.fromEntries($("#ivari").value.split("\n").map(r=>r.split("=")).filter(x=>x.length===2&&x[0].trim()).map(([k,v])=>[k.trim().toUpperCase(),v.split(",").map(x=>x.trim()).filter(Boolean)])),
       limiti:lim,minPiatti:Math.max(1,+$("#imin").value||1),approvazione:$("#iapp").checked,nominativoWhatsApp:$("#inw").checked,mailWeekend:$("#iwe").checked,emailExtra:$("#iex").value.trim(),emailAmministrazione:$("#iam").value.trim()};
     if(v.aperturaGiorno>v.chiusuraGiorno){toast("L'apertura deve venire prima della chiusura");return}
     try{await api("impostazioni",{salva:v});await loadMe();S.view="admin";toast("Impostazioni salvate ✓");render()}catch(e){toast(e.message)}};
@@ -903,10 +988,10 @@ function loadExcel(){ if(excelLib)return excelLib; excelLib=new Promise((ok,ko)=
 async function runRep(mese){
   const ro=$("#ro");ro.innerHTML='<div class="muted">Calcolo…</div>';
   try{const R=await api("report",{mese});
-    ro.innerHTML=R.righe.length?`<div class="tiles"><div class="tile"><div class="eyebrow">Pasti</div><div class="big">${R.totali.pasti}</div></div><div class="tile warn"><div class="eyebrow">Annullati dopo l'invio</div><div class="big">${R.totali.annullati}</div></div><div class="tile"><div class="eyebrow">Variazioni dopo l'invio</div><div class="big">${R.totali.variazioni}</div></div></div>
+    ro.innerHTML=R.righe.length?`<div class="tiles"><div class="tile"><div class="eyebrow">Pasti</div><div class="big">${R.totali.pasti}</div></div><div class="tile warn"><div class="eyebrow">Annullati dopo l'invio</div><div class="big">${R.totali.annullati}</div></div><div class="tile"><div class="eyebrow">Variazioni dopo l'invio</div><div class="big">${R.totali.variazioni}</div></div><div class="tile"><div class="eyebrow">Richieste di annullamento</div><div class="big">${R.totali.richieste||0}</div><div class="muted" style="font-size:12px">✓ ${R.totali.rich_approvata||0} · ✗ ${R.totali.rich_rifiutata||0} · scadute ${R.totali.rich_scaduta||0}</div></div></div>
      <div class="row"><button class="btn primary" id="rx">⬇ Scarica Excel</button><span class="muted" style="font-size:13px">Tre fogli (per persona, dettaglio, per giorno) con filtri e stampa già impostata in orizzontale.</span></div>
      <div class="muted" style="font-size:13px">Contano solo gli annullamenti fatti <b>dopo l'invio dell'ordine</b> alla mensa. In cima chi annulla di più.</div>
-     <div class="scroll"><table><thead><tr><th>Utente</th><th>Pasti</th><th>Annullati</th><th>Variazioni</th><th class="hide-sm">Inseriti da addetti</th></tr></thead><tbody>${R.righe.map(r=>`<tr><td>${esc(r.username)}${r.ospite?' <span class="badge flag">⚑ ospite</span>':""}</td><td>${r.pasti}</td><td>${r.annullati?`<b>${r.annullati}</b>`:""}</td><td>${r.variazioni||""}</td><td class="hide-sm">${r.perConto||""}</td></tr>`).join("")}</tbody></table></div>`:'<div class="muted">Nessun ordine in questo mese.</div>';
+     <div class="scroll"><table><thead><tr><th>Utente</th><th>Pasti</th><th>Annullati</th><th>Variazioni</th><th class="hide-sm">Inseriti da gestori</th></tr></thead><tbody>${R.righe.map(r=>`<tr><td>${esc(r.username)}${r.ospite?' <span class="badge flag">⚑ ospite</span>':""}</td><td>${r.pasti}</td><td>${r.annullati?`<b>${r.annullati}</b>`:""}</td><td>${r.variazioni||""}</td><td class="hide-sm">${r.perConto||""}</td></tr>`).join("")}</tbody></table></div>`:'<div class="muted">Nessun ordine in questo mese.</div>';
     if($("#rx"))$("#rx").onclick=async()=>{const b=$("#rx");b.disabled=true;b.textContent="Preparo il file…";
       try{const X=await loadExcel();const wb=MensaExcel.costruisci(X,R,S.me.username);const buf=await wb.xlsx.writeBuffer();
         const bl=new Blob([buf],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});const a=document.createElement("a");a.href=URL.createObjectURL(bl);a.download=MensaExcel.nomeFile(R);document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},2000);toast("Excel scaricato ✓")}

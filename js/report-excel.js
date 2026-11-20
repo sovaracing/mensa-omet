@@ -59,24 +59,32 @@
     // 1) per persona
     foglio(wb, "Per persona", "Mensa Omet – " + meseL(R.mese) + " · riepilogo per persona", sub, [
       { k: "u", t: "Utente", w: 28 }, { k: "p", t: "Pasti consumati", w: 14, n: 1 }, { k: "a", t: "Annullamenti dopo l'invio", w: 16, n: 1 },
-      { k: "v", t: "Variazioni dopo l'invio", w: 16, n: 1 }, { k: "c", t: "Inseriti da addetti", w: 14, n: 1 }, { k: "o", t: "Ospite", w: 10, n: 1 }
-    ], R.righe.map(function (r) { return { u: r.username, p: r.pasti, a: r.annullati, v: r.variazioni, c: r.perConto, o: r.ospite ? "Sì" : "" }; }), {
+      { k: "v", t: "Variazioni dopo l'invio", w: 16, n: 1 }, { k: "c", t: "Inseriti da gestori", w: 14, n: 1 }, { k: "o", t: "Ospite", w: 10, n: 1 }
+    ], R.righe.map(function (r) { return { u: r.username, p: r.pasti, a: r.annullati || "", v: r.variazioni || "", c: r.perConto || "", o: r.ospite ? "Sì" : "" }; }), {
       totale: { u: "TOTALE", p: R.totali.pasti, a: R.totali.annullati, v: R.totali.variazioni },
       evidenzia: function (row, r) { if (r.a >= 2) row.getCell(3).font = { bold: true, color: { argb: ROSSO } }; }
     });
     // 2) dettaglio pasti
     foglio(wb, "Dettaglio", "Mensa Omet – " + meseL(R.mese) + " · dettaglio pasti", sub, [
-      { k: "d", t: "Data", w: 11, d: 1 }, { k: "g", t: "Giorno", w: 11 }, { k: "u", t: "Utente", w: 24 }, { k: "s", t: "Stato", w: 11 },
-      { k: "c", t: "Codici", w: 10 }, { k: "p", t: "Piatti", w: 52, wrap: 1 }, { k: "a", t: "Acqua", w: 10 }, { k: "n", t: "Nota", w: 22, wrap: 1 },
-      { k: "x", t: "Annullato il", w: 16 }, { k: "y", t: "Dopo l'invio", w: 11, n: 1 }, { k: "i", t: "Inserito da", w: 16 }
+      { k: "d", t: "Data", w: 11, d: 1 }, { k: "g", t: "Giorno", w: 11 }, { k: "u", t: "Utente", w: 22 }, { k: "s", t: "Stato", w: 11 },
+      { k: "p1", t: "Primo", w: 26, wrap: 1 }, { k: "p2", t: "Secondo", w: 24, wrap: 1 }, { k: "p3", t: "Contorno, frutta o dolce", w: 24, wrap: 1 }, { k: "a", t: "Acqua", w: 10 },
+      { k: "x", t: "Annullato il", w: 16 }, { k: "y", t: "Dopo l'invio", w: 11, n: 1 }, { k: "z", t: "Annullato da", w: 14 }, { k: "i", t: "Inserito da", w: 15 }
     ], R.dettaglio.map(function (r) {
-      return { d: data(r.data), g: r.giorno, u: r.username + (r.ospite ? " (ospite)" : ""), s: r.stato, c: r.codici, p: r.piatti, a: r.acqua, n: r.nota,
-        x: quando(r.annullatoIl), y: r.stato === "Annullato" ? (r.dopoChiusura ? "Sì" : "No") : "", i: r.inseritoDa };
+      var g = r.gruppi || {};
+      return { d: data(r.data), g: r.giorno, u: r.username + (r.ospite ? " (ospite)" : ""), s: r.stato, p1: g.primo || "", p2: g.secondo || "", p3: g.contorno || "", a: r.acqua,
+        x: quando(r.annullatoIl), y: r.stato === "Annullato" ? (r.dopoChiusura ? "Sì" : "No") : "", z: r.annullatoDa || "", i: r.inseritoDa };
     }), { evidenzia: function (row, r) { if (r.y === "Sì") row.getCell(4).font = { bold: true, color: { argb: ROSSO } }; } });
     // 3) pasti per giorno
     foglio(wb, "Per giorno", "Mensa Omet – " + meseL(R.mese) + " · pasti per giorno", sub, [
       { k: "d", t: "Data", w: 12, d: 1 }, { k: "g", t: "Giorno", w: 14 }, { k: "p", t: "Pasti", w: 10, n: 1 }
     ], R.perGiorno.map(function (r) { return { d: data(r.data), g: r.giorno, p: r.pasti }; }), { totale: { d: "TOTALE", p: R.totali.pasti } });
+    // 4) variazioni e approvazioni (tracciabilità: richieste, esiti, annullamenti, invii alla mensa)
+    foglio(wb, "Variazioni e approvazioni", "Mensa Omet – " + meseL(R.mese) + " · variazioni, approvazioni e invii", sub + " · Richieste: " + (R.totali.richieste || 0) +
+      " (approvate " + (R.totali.rich_approvata || 0) + ", rifiutate " + (R.totali.rich_rifiutata || 0) + ", scadute " + (R.totali.rich_scaduta || 0) + ", ritirate " + (R.totali.rich_ritirata || 0) + ")", [
+      { k: "d", t: "Giorno pasto", w: 12, d: 1 }, { k: "g", t: "Giorno", w: 11 }, { k: "q", t: "Data e ora", w: 16 }, { k: "e", t: "Evento", w: 30, wrap: 1 }, { k: "c", t: "Da", w: 16 }, { k: "x", t: "Dettaglio", w: 48, wrap: 1 }
+    ], (R.eventi || []).map(function (e) { return { d: data(e.data), g: e.giorno, q: quando(e.ts), e: e.cosa, c: e.chi, x: e.det }; }), {
+      evidenzia: function (row, r) { if (/RIFIUTATA|SCADUTA/.test(r.e)) row.getCell(4).font = { bold: true, color: { argb: ROSSO } }; }
+    });
     return wb;
   }
 

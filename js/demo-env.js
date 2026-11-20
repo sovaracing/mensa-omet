@@ -64,7 +64,7 @@
     var outbox = opts.outbox || [];
     var clockNow = opts.now || function () { return new Date(); };
     return {
-      store: store, outbox: outbox, appUrl: opts.appUrl || "",
+      store: store, outbox: outbox, appUrl: opts.appUrl || "", webUrl: opts.webUrl || "",
       hash: sha256, uuid: uuid,
       clock: { now: clockNow, parts: function (d) { return parts(d || clockNow()); } },
       mail: {
