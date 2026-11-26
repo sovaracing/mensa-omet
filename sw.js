@@ -1,6 +1,6 @@
 /* Omet – Mensa · service worker: app installabile, apertura veloce e senza rete.
    Le chiamate al backend (Google Apps Script) non passano mai dalla cache. */
-const CACHE = "omet-mensa-v0.5";
+const CACHE = "omet-mensa-v0.6";
 const SHELL = ["./", "index.html", "config.js", "manifest.webmanifest", "js/core.js", "js/demo-env.js", "js/menu-pdf.js", "js/report-excel.js", "js/demo-menu.js",
   "icons/logo-bianco.png", "icons/icon-192.png", "icons/icon-512.png", "icons/maskable-512.png", "icons/apple-touch-icon.png", "icons/favicon-64.png"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL))); });

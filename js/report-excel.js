@@ -44,9 +44,11 @@
       if (opz.evidenzia) opz.evidenzia(row, r);
     });
     ws.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3 + Math.max(righe.length, 1), column: colonne.length } };
-    if (opz.totale) {
-      var tr = ws.addRow(opz.totale); tr.font = { bold: true };
-      tr.eachCell({ includeEmpty: true }, function (cell, col) { if (colonne[col - 1] && colonne[col - 1].n) cell.alignment = { horizontal: "center" }; cell.border = { top: { style: "medium", color: { argb: BLU } } }; });
+    if (opz.totale) {   // una o più righe di totale sotto l'elenco (fuori dal filtro)
+      [].concat(opz.totale).forEach(function (tot, i, l) {
+        var tr = ws.addRow(tot); tr.font = { bold: i === l.length - 1, italic: i < l.length - 1 };
+        tr.eachCell({ includeEmpty: true }, function (cell, col) { if (colonne[col - 1] && colonne[col - 1].n) cell.alignment = { horizontal: "center" }; if (!i) cell.border = { top: { style: "medium", color: { argb: BLU } } }; });
+      });
     }
     return ws;
   }
@@ -57,27 +59,30 @@
     wb.creator = "Mensa Omet"; wb.created = new Date();
     var sub = "Generato il " + new Date().toLocaleString("it-IT") + (chi ? " da " + chi : "") + " · Filtri attivi sulla riga blu · Stampa: File → Stampa (già impostata A4 orizzontale)";
     // 1) per persona
+    // prima i dipendenti, poi gli interinali (e gli ospiti); subtotali per tipo sotto l'elenco
+    var PT = R.totali.perTipo || {}, subt = ["Dipendente", "Interinale", "Ospite"].filter(function (t) { return PT[t]; }).map(function (t) {
+      return { t: "", u: "Totale " + { Dipendente: "dipendenti", Interinale: "interinali", Ospite: "ospiti" }[t] + " (" + PT[t].persone + ")", p: PT[t].pasti, nc: PT[t].nonConsumati, a: PT[t].annullati }; });
     foglio(wb, "Per persona", "Mensa Omet – " + meseL(R.mese) + " · riepilogo per persona", sub, [
-      { k: "u", t: "Utente", w: 28 }, { k: "p", t: "Pasti consumati", w: 14, n: 1 }, { k: "a", t: "Annullamenti dopo l'invio", w: 16, n: 1 },
-      { k: "v", t: "Variazioni dopo l'invio", w: 16, n: 1 }, { k: "c", t: "Inseriti da gestori", w: 14, n: 1 }, { k: "o", t: "Ospite", w: 10, n: 1 }
-    ], R.righe.map(function (r) { return { u: r.username, p: r.pasti, a: r.annullati || "", v: r.variazioni || "", c: r.perConto || "", o: r.ospite ? "Sì" : "" }; }), {
-      totale: { u: "TOTALE", p: R.totali.pasti, a: R.totali.annullati, v: R.totali.variazioni },
-      evidenzia: function (row, r) { if (r.a >= 2) row.getCell(3).font = { bold: true, color: { argb: ROSSO } }; }
+      { k: "t", t: "Tipo", w: 12 }, { k: "u", t: "Utente", w: 26 }, { k: "p", t: "Pasti ordinati", w: 12, n: 1 }, { k: "nc", t: "Ordinati ma non consumati", w: 15, n: 1 },
+      { k: "a", t: "Annullamenti dopo l'invio", w: 15, n: 1 }, { k: "v", t: "Variazioni dopo l'invio", w: 14, n: 1 }, { k: "c", t: "Inseriti da gestori", w: 12, n: 1 }, { k: "o", t: "Ospite", w: 9, n: 1 }
+    ], R.righe.map(function (r) { return { t: r.tipo || "", u: r.username, p: r.pasti, nc: r.nonConsumati || "", a: r.annullati || "", v: r.variazioni || "", c: r.perConto || "", o: r.ospite ? "Sì" : "" }; }), {
+      totale: subt.concat([{ t: "", u: "TOTALE", p: R.totali.pasti, nc: R.totali.nonConsumati || 0, a: R.totali.annullati, v: R.totali.variazioni }]),
+      evidenzia: function (row, r) { if (r.nc) row.getCell(4).font = { bold: true, color: { argb: ROSSO } }; if (r.a >= 2) row.getCell(5).font = { bold: true, color: { argb: ROSSO } }; }
     });
     // 2) dettaglio pasti
     foglio(wb, "Dettaglio", "Mensa Omet – " + meseL(R.mese) + " · dettaglio pasti", sub, [
-      { k: "d", t: "Data", w: 11, d: 1 }, { k: "g", t: "Giorno", w: 11 }, { k: "u", t: "Utente", w: 22 }, { k: "s", t: "Stato", w: 11 },
+      { k: "d", t: "Data", w: 11, d: 1 }, { k: "g", t: "Giorno", w: 11 }, { k: "u", t: "Utente", w: 22 }, { k: "t", t: "Tipo", w: 11 }, { k: "s", t: "Stato", w: 13 }, { k: "m", t: "Motivo non consumato", w: 22, wrap: 1 },
       { k: "p1", t: "Primo", w: 26, wrap: 1 }, { k: "p2", t: "Secondo", w: 24, wrap: 1 }, { k: "p3", t: "Contorno, frutta o dolce", w: 24, wrap: 1 }, { k: "a", t: "Acqua", w: 10 },
       { k: "x", t: "Annullato il", w: 16 }, { k: "y", t: "Dopo l'invio", w: 11, n: 1 }, { k: "z", t: "Annullato da", w: 14 }, { k: "i", t: "Inserito da", w: 15 }
     ], R.dettaglio.map(function (r) {
       var g = r.gruppi || {};
-      return { d: data(r.data), g: r.giorno, u: r.username + (r.ospite ? " (ospite)" : ""), s: r.stato, p1: g.primo || "", p2: g.secondo || "", p3: g.contorno || "", a: r.acqua,
+      return { d: data(r.data), g: r.giorno, u: r.username + (r.ospite ? " (ospite)" : ""), t: r.tipo || "", s: r.stato + (r.sblocco ? " (sblocco)" : ""), m: r.motivoNC || "", p1: g.primo || "", p2: g.secondo || "", p3: g.contorno || "", a: r.acqua,
         x: quando(r.annullatoIl), y: r.stato === "Annullato" ? (r.dopoChiusura ? "Sì" : "No") : "", z: r.annullatoDa || "", i: r.inseritoDa };
-    }), { evidenzia: function (row, r) { if (r.y === "Sì") row.getCell(4).font = { bold: true, color: { argb: ROSSO } }; } });
+    }), { evidenzia: function (row, r) { if (r.y === "Sì" || /Non consumato/.test(r.s)) row.getCell(5).font = { bold: true, color: { argb: ROSSO } }; } });
     // 3) pasti per giorno
     foglio(wb, "Per giorno", "Mensa Omet – " + meseL(R.mese) + " · pasti per giorno", sub, [
-      { k: "d", t: "Data", w: 12, d: 1 }, { k: "g", t: "Giorno", w: 14 }, { k: "p", t: "Pasti", w: 10, n: 1 }
-    ], R.perGiorno.map(function (r) { return { d: data(r.data), g: r.giorno, p: r.pasti }; }), { totale: { d: "TOTALE", p: R.totali.pasti } });
+      { k: "d", t: "Data", w: 12, d: 1 }, { k: "g", t: "Giorno", w: 14 }, { k: "p", t: "Pasti ordinati", w: 12, n: 1 }, { k: "nc", t: "Non consumati", w: 12, n: 1 }
+    ], R.perGiorno.map(function (r) { return { d: data(r.data), g: r.giorno, p: r.pasti, nc: r.nonConsumati || "" }; }), { totale: { d: "TOTALE", p: R.totali.pasti, nc: R.totali.nonConsumati || 0 } });
     // 4) variazioni e approvazioni (tracciabilità: richieste, esiti, annullamenti, invii alla mensa)
     foglio(wb, "Variazioni e approvazioni", "Mensa Omet – " + meseL(R.mese) + " · variazioni, approvazioni e invii", sub + " · Richieste: " + (R.totali.richieste || 0) +
       " (approvate " + (R.totali.rich_approvata || 0) + ", rifiutate " + (R.totali.rich_rifiutata || 0) + ", scadute " + (R.totali.rich_scaduta || 0) + ", ritirate " + (R.totali.rich_ritirata || 0) + ")", [

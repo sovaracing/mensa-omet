@@ -14,19 +14,21 @@
 var MensaCore = (function () {
   "use strict";
 
-  var VERSIONE = "v0.5";
-  var DATA_VERSIONE = "20/11/2026";
+  var VERSIONE = "v0.6";
+  var DATA_VERSIONE = "26/11/2026";
 
   /* ---------- schema delle tabelle (anche intestazioni del Foglio) ----------
      Le colonne nuove si aggiungono SOLO in fondo: il Foglio legge per posizione. */
   var SCHEMA = {
     utenti: [["id"], ["username"], ["pinHash"], ["salt"], ["email"], ["mailSettimana", "b"], ["notifiche", "b"], ["ruolo"], ["stato"],
-      ["creato"], ["approvatoDa"], ["approvatoIl"], ["errori", "n"], ["bloccatoFino"], ["ultimoAccesso"], ["acqua"]],
+      ["creato"], ["approvatoDa"], ["approvatoIl"], ["errori", "n"], ["bloccatoFino"], ["ultimoAccesso"], ["acqua"], ["tipo"]],
     sessioni: [["token"], ["uid"], ["creato"], ["scade"], ["dispositivo"]],
     menu: [["data"], ["lunedi"], ["settimana"], ["cod"], ["nome"], ["all"], ["cat"], ["panna", "b"], ["maiale", "b"], ["pos", "n"]],
     menuNote: [["lunedi"], ["settimana"], ["note"], ["caricatoDa"], ["caricatoIl"], ["origine"]],
     ordini: [["id"], ["data"], ["uid"], ["username"], ["scelte"], ["acqua"], ["nota"], ["stato"], ["creato"], ["modificato"],
-      ["inseritoDa"], ["tardivo", "b"], ["ospite", "b"], ["annullatoDa"], ["annullatoIl"]],
+      ["inseritoDa"], ["tardivo", "b"], ["ospite", "b"], ["annullatoDa"], ["annullatoIl"],
+      ["sblocco", "b"], ["nonConsumato", "b"], ["motivoNC"], ["ncDa"], ["ncIl"]],
+    sblocchi: [["id"], ["lunedi"], ["uid"], ["username"], ["ts"], ["stato"], ["sbloccatoDa"], ["sbloccatoIl"], ["inviatoIl"], ["gestitoDa"], ["gestitoIl"], ["motivo"], ["notificata", "b"]],
     richieste: [["id"], ["data"], ["uid"], ["username"], ["ts"], ["stato"], ["gestitoDa"], ["gestitoIl"], ["motivo"], ["chiave"], ["notificata", "b"], ["pasto"]],
     registro: [["ts"], ["data"], ["uid"], ["username"], ["azione"], ["prima"], ["dopo"], ["entroLimite", "b"], ["da"], ["dopoInvio", "b"],
       ["dopoChiusura", "b"], ["notificato", "b"]],
@@ -56,6 +58,7 @@ var MensaCore = (function () {
     approvazione: true,
     approvazioniFino: "10:00",  // i gestori approvano le richieste di annullamento entro quest'ora del giorno; poi scadono (il pasto resta)
     orarioControllo: "11:00",   // foglio di controllo consegna ai gestori e all'amministrazione
+    orarioSblocchi: "07:00",    // pasti da ordine sbloccato: la variazione del giorno parte la mattina stessa da quest'ora
     emailExtra: "",             // altre caselle per le email ai gestori mensa (separate da virgola)
     emailAmministrazione: "",   // report mensile, primo giorno lavorativo del mese
     mailWeekend: false,         // email anche sabato e domenica
@@ -246,6 +249,7 @@ var MensaCore = (function () {
       S.rows("ordini").forEach(function (o) { if (o.uid === u.id && lunedi(o.data) === lun) miei[o.data] = pubOrd(o); });
       S.rows("richieste").forEach(function (r) { if (r.uid === u.id && miei[r.data] && (!miei[r.data].richiesta || miei[r.data].richiesta.ts < r.ts)) miei[r.data].richiesta = pubRich(r); });
       return Object.assign(infoSettimana(lun, c), {
+        sblocco: infoSblocco(u, lun, c),
         settimana: note ? note.settimana : "", note: note ? String(note.note || "").split("\n").filter(Boolean) : [],
         giorni: Object.keys(giorni).sort().map(function (d) { return { data: d, piatti: piattiDel(d), stato: statoGiorno(d, c), cutoff: c.cutoff, ordine: miei[d] || null }; })
       });
@@ -283,7 +287,9 @@ var MensaCore = (function () {
     function pubOrd(o) {
       return { id: o.id, data: o.data, uid: o.uid, username: o.username, scelte: splitCodes(o.scelte).map(function (t) { return canon(t); }), acqua: o.acqua || "", nota: o.nota || "", stato: o.stato,
         creato: o.creato, modificato: o.modificato, inseritoDa: o.inseritoDa || "", tardivo: !!o.tardivo, ospite: !!o.ospite,
-        annullatoDa: o.annullatoDa || "", annullatoIl: o.annullatoIl || "" };
+        annullatoDa: o.annullatoDa || "", annullatoIl: o.annullatoIl || "",
+        sblocco: !!o.sblocco, attesaConferma: !!o.sblocco && o.stato === "ok" && !(statoInvio(o.data).ultimoInvio >= o.modificato),
+        nonConsumato: !!o.nonConsumato, motivoNC: o.motivoNC || "", ncDa: o.ncDa || "" };
     }
     /* scelte: "A", "4", oppure codice~variante per i piatti con varianti ("B~riso", "P~tramezzino al tonno") */
     function tok(t) { var i = String(t).indexOf("~"); return i < 0 ? { c: String(t), v: "" } : { c: String(t).slice(0, i), v: String(t).slice(i + 1) }; }
@@ -328,7 +334,10 @@ var MensaCore = (function () {
       if (perConto) serve(u, "addetto");
       var st = statoGiorno(day, c), dopo = st === "chiuso" || st === "concluso";
       var id0 = day + "_" + (p.uid || u.id), ex0 = S.rows("ordini").filter(function (o) { return o.id === id0; })[0];
-      if (!isAddetto(u)) {
+      var sb = !perConto && st === "chiuso" ? sbloccoDi(u.id, lunedi(day)) : null, bozza = false;
+      if (sb && sb.stato === "inviato" && !isAddetto(u)) throw err("chiuso", "Hai già inviato i pasti: attendi l'approvazione di un gestore mensa.");
+      if (sb && sb.stato === "sbloccato" && (!ex0 || ex0.stato === "bozza" || ex0.stato === "decaduto" || ex0.stato === "rifiutato")) bozza = true;   // ordine sbloccato: si compila e poi si invia
+      if (!isAddetto(u) && !bozza) {
         if (st === "futuro") throw err("chiuso", "Le prenotazioni per la settimana del " + it(lunedi(day)) + " si aprono " + giornoL(apertura(lunedi(day), c).date) + " " + it(apertura(lunedi(day), c).date) + ".");
         if (st === "concluso") throw err("chiuso", "Per " + giornoL(day) + " " + it(day) + " non si può più modificare.");
         if (st === "chiuso") {
@@ -358,14 +367,145 @@ var MensaCore = (function () {
       var nota = String(p.nota || "").slice(0, 120);
       ordinaTok(piatti, sc);
       var id = day + "_" + dest.id, ex = S.rows("ordini").filter(function (o) { return o.id === id; })[0], n = now();
-      var row = { id: id, data: day, uid: dest.id, username: dest.username, scelte: sc.join("|"), acqua: acqua, nota: nota, stato: "ok",
-        creato: ex ? ex.creato : n.ts, modificato: n.ts, inseritoDa: perConto ? u.username : (ex ? ex.inseritoDa : ""), tardivo: dopo, ospite: !!p.ospite };
+      var row = { id: id, data: day, uid: dest.id, username: dest.username, scelte: sc.join("|"), acqua: acqua, nota: nota, stato: bozza ? "bozza" : "ok",
+        creato: ex ? ex.creato : n.ts, modificato: n.ts, inseritoDa: perConto ? u.username : (ex ? ex.inseritoDa : ""), tardivo: dopo, ospite: !!p.ospite, sblocco: bozza };
+      if (bozza) { if (ex) S.update("ordini", "id", id, row); else S.insert("ordini", row); return { ordine: pubOrd(row), bozza: true, settimana: p.conSettimana ? settimana(u, { lunedi: lunedi(day) }) : undefined }; }
       var azione = ex ? (ex.stato === "ok" ? "modifica" : "ripristina") : "prenota";
       var sett = function () { return p.conSettimana ? settimana(u, { lunedi: lunedi(day) }) : undefined; };
       if (ex && ex.stato === "ok" && ex.scelte === row.scelte && (ex.acqua || "") === acqua && (ex.nota || "") === nota) return { ordine: pubOrd(ex), invariato: true, settimana: sett() };
       if (ex) S.update("ordini", "id", id, row); else S.insert("ordini", row);
       registra_(day, dest, azione, descr(ex, piatti), descr(row, piatti), st !== "concluso", u.username, dopo);
       return { ordine: pubOrd(row), settimana: sett() };
+    }
+
+    /* ---------- sblocco ordine: chi non ha prenotato nulla prima della chiusura ----------
+       richiesta (da sabato a venerdì entro il cutoff) → un gestore sblocca → l'utente compila e invia i pasti (in attesa)
+       → un gestore approva per giorno (entro approvazioniFino del giorno, poi decadono)
+       → ogni mattina (orarioSblocchi) il pasto del giorno entra nel totale come VARIAZIONE da inviare alla mensa
+       → per l'utente resta "in attesa di conferma" finché quel giorno non viene inviato alla mensa */
+    var SB_ATTIVI = ["richiesto", "sbloccato", "inviato"];
+    function sbloccoDi(uid, lun) { return S.rows("sblocchi").filter(function (x) { return x.uid === uid && x.lunedi === lun && SB_ATTIVI.indexOf(x.stato) >= 0; })[0] || null; }
+    function fineSblocco(lun, c) { var g = giorniSettimana(lun); return { date: g[g.length - 1] || addDays(lun, 4), time: (c || cfg()).cutoff }; }
+    function settimanaSbloccabile(c) {
+      var n = now(), l0 = lunedi(n.date);
+      return [l0, addDays(l0, 7)].filter(function (l) { return giorniSettimana(l).length && passato(n, chiusuraSett(l, c)) && !passato(n, fineSblocco(l, c)); })[0] || "";
+    }
+    function senzaPasti(uid, lun) { return !S.rows("ordini").some(function (o) { return o.uid === uid && lunedi(o.data) === lun && ["ok", "attesa", "approvato"].indexOf(o.stato) >= 0; }); }
+    function pubSb(x) { return x ? { id: x.id, lunedi: x.lunedi, uid: x.uid, username: x.username, ts: x.ts, stato: x.stato, sbloccatoDa: x.sbloccatoDa || "", inviatoIl: x.inviatoIl || "", gestitoDa: x.gestitoDa || "", gestitoIl: x.gestitoIl || "", motivo: x.motivo || "" } : null; }
+    function infoSblocco(u, lun, c) {
+      c = c || cfg();
+      var ult = S.rows("sblocchi").filter(function (x) { return x.uid === u.id && x.lunedi === lun; }).sort(function (a, b) { return a.ts < b.ts ? 1 : -1; })[0];
+      var puo = lun === settimanaSbloccabile(c) && senzaPasti(u.id, lun) && !sbloccoDi(u.id, lun);
+      var bozze = S.rows("ordini").filter(function (o) { return o.uid === u.id && lunedi(o.data) === lun && o.stato === "bozza"; }).length;
+      return { puoiRichiedere: puo, ultimo: pubSb(ult), bozze: bozze, scade: it(fineSblocco(lun, c).date) + " alle " + c.cutoff, approvaEntro: c.approvazioniFino };
+    }
+    function avvisaSblocco(x) {
+      var c = cfg(), ogg, txt;
+      if (x.stato === "inviato") {
+        var l = S.rows("ordini").filter(function (o) { return o.uid === x.uid && lunedi(o.data) === x.lunedi && o.stato === "attesa"; }).sort(function (a, b) { return a.data < b.data ? -1 : 1; });
+        ogg = "Mensa – pasti da APPROVARE (ordine sbloccato): " + x.username + ", settimana " + periodo(x.lunedi);
+        txt = x.username + " ha inviato i pasti della settimana " + periodo(x.lunedi) + ":\n" + l.map(function (o) { return "  " + giornoL(o.data) + " " + it(o.data).slice(0, 5) + ": " + descr(Object.assign({}, o, { stato: "ok" }), piattiDel(o.data)); }).join("\n") +
+          "\n\nApprova o rifiuta dalla app: Gestione → Richieste. Ogni giorno va approvato entro le " + c.approvazioniFino + " di quel giorno, altrimenti decade.\n" +
+          "I pasti approvati entrano nel totale la mattina del giorno stesso come VARIAZIONE da inviare alla mensa.\n" + (env.appUrl || "");
+      } else {
+        ogg = "Mensa – richiesta di SBLOCCO ordine: " + x.username + ", settimana " + periodo(x.lunedi);
+        txt = x.username + " non ha prenotato nessun pasto per la settimana " + periodo(x.lunedi) + " e chiede lo sblocco dell'ordine.\nSblocca o rifiuta dalla app: Gestione → Richieste.\n" + (env.appUrl || "");
+      }
+      manda(emailAddetti(), ogg, txt, null, "sblocco");
+      S.update("sblocchi", "id", x.id, { notificata: true });
+    }
+    function richiediSblocco(u, p) {
+      var c = cfg(), lun = p.lunedi, n = now();
+      if (lun !== settimanaSbloccabile(c)) throw err("chiuso", "Lo sblocco si può chiedere solo dopo la chiusura dell'ordine e fino a venerdì alle " + c.cutoff + ".");
+      if (!senzaPasti(u.id, lun)) throw err("dati", "Hai già dei pasti in questa settimana: lo sblocco serve solo a chi non ha prenotato nulla.");
+      if (sbloccoDi(u.id, lun)) return { settimana: settimana(u, { lunedi: lun }) };
+      var x = { id: "S" + env.uuid().replace(/-/g, "").slice(0, 10), lunedi: lun, uid: u.id, username: u.username, ts: n.ts, stato: "richiesto", sbloccatoDa: "", sbloccatoIl: "", inviatoIl: "", gestitoDa: "", gestitoIl: "", motivo: "", notificata: false };
+      S.insert("sblocchi", x);
+      if (c.mailWeekend || !weekend(n.date)) avvisaSblocco(x);
+      return { settimana: settimana(u, { lunedi: lun }), condividi: "Ciao, ti ho inviato dalla app Mensa Omet una richiesta di sblocco dell'ordine per la settimana " + periodo(lun) + ". Grazie!" };
+    }
+    function sblocca(u, p) {
+      serve(u, "addetto");
+      var c = cfg(), n = now(), x;
+      if (p.id) {
+        x = S.rows("sblocchi").filter(function (y) { return y.id === p.id; })[0];
+        if (!x) throw err("dati", "Richiesta non trovata.");
+        if (x.stato !== "richiesto") throw err("gestita", "Richiesta già gestita (" + x.stato + (x.sbloccatoDa ? " da " + x.sbloccatoDa : "") + ").");
+        if (passato(n, fineSblocco(x.lunedi, c))) throw err("gestita", "La settimana è ormai finita.");
+        S.update("sblocchi", "id", x.id, { stato: "sbloccato", sbloccatoDa: u.username, sbloccatoIl: n.ts });
+      } else {
+        var lun = p.lunedi || settimanaSbloccabile(c), dest = S.rows("utenti").filter(function (y) { return y.id === p.uid && y.stato === "attivo"; })[0];
+        if (!dest) throw err("dati", "Utente non trovato.");
+        if (!lun || passato(n, fineSblocco(lun, c))) throw err("chiuso", "Non c'è una settimana da sbloccare.");
+        if (!senzaPasti(dest.id, lun)) throw err("dati", dest.username + " ha già dei pasti in questa settimana.");
+        x = sbloccoDi(dest.id, lun);
+        if (x && x.stato !== "richiesto") throw err("gestita", "Ordine già sbloccato.");
+        if (x) S.update("sblocchi", "id", x.id, { stato: "sbloccato", sbloccatoDa: u.username, sbloccatoIl: n.ts });
+        else { x = { id: "S" + env.uuid().replace(/-/g, "").slice(0, 10), lunedi: lun, uid: dest.id, username: dest.username, ts: n.ts, stato: "sbloccato", sbloccatoDa: u.username, sbloccatoIl: n.ts, inviatoIl: "", gestitoDa: "", gestitoIl: "", motivo: "", notificata: true }; S.insert("sblocchi", x); }
+      }
+      var e = emailUtente(x.uid);
+      var testo = "Ciao " + x.username + ", ti ho sbloccato l'ordine della mensa per la settimana " + periodo(x.lunedi) + ". Entra nella app, scegli i pasti e premi \"Invia i pasti della settimana\": poi un gestore li approva.";
+      if (e) manda(e, "Mensa – ordine sbloccato per la settimana " + periodo(x.lunedi), testo + "\n" + (env.appUrl || ""), null, "conferma");
+      return { ok: true, condividi: testo, sblocco: pubSb(S.rows("sblocchi").filter(function (y) { return y.id === x.id; })[0]) };
+    }
+    function rifiutaSblocco(u, p) {
+      serve(u, "addetto");
+      var x = S.rows("sblocchi").filter(function (y) { return y.id === p.id; })[0], n = now();
+      if (!x || x.stato !== "richiesto") throw err("gestita", "Richiesta non più in attesa.");
+      S.update("sblocchi", "id", x.id, { stato: "rifiutato", gestitoDa: u.username, gestitoIl: n.ts, motivo: String(p.motivo || "").slice(0, 200) });
+      var testo = "Ciao " + x.username + ", la richiesta di sblocco dell'ordine per la settimana " + periodo(x.lunedi) + " non è stata accettata da " + u.username + (p.motivo ? ": " + p.motivo : "") + ".";
+      var e = emailUtente(x.uid); if (e) manda(e, "Mensa – sblocco ordine non accettato", testo, null, "conferma");
+      return { ok: true, condividi: testo };
+    }
+    function inviaSblocco(u, p) {
+      var lun = p.lunedi, x = sbloccoDi(u.id, lun), n = now(), c = cfg();
+      if (!x || x.stato !== "sbloccato") throw err("dati", "L'ordine di questa settimana non è sbloccato.");
+      var bz = S.rows("ordini").filter(function (o) { return o.uid === u.id && lunedi(o.data) === lun && o.stato === "bozza"; });
+      bz.forEach(function (o) { if (passato(n, scadenzaApprov(o.data, c))) S.update("ordini", "id", o.id, { stato: "decaduto", modificato: n.ts }); });
+      bz = bz.filter(function (o) { return !passato(n, scadenzaApprov(o.data, c)); });
+      if (!bz.length) throw err("dati", "Scegli almeno un pasto prima di inviare.");
+      bz.forEach(function (o) { S.update("ordini", "id", o.id, { stato: "attesa", modificato: n.ts }); });
+      S.update("sblocchi", "id", x.id, { stato: "inviato", inviatoIl: n.ts, notificata: false });
+      x = S.rows("sblocchi").filter(function (y) { return y.id === x.id; })[0];
+      if (c.mailWeekend || !weekend(n.date)) avvisaSblocco(x);
+      return { settimana: settimana(u, { lunedi: lun }), condividi: "Ciao, ho inviato dalla app Mensa Omet i miei pasti della settimana " + periodo(lun) + " (ordine sbloccato): mi servirebbe la tua approvazione. Grazie!" };
+    }
+    function attivaSblocco(o, chi) {   // il pasto approvato entra nel totale del giorno come variazione
+      var n = now();
+      S.update("ordini", "id", o.id, { stato: "ok", modificato: n.ts, tardivo: true });
+      registra_(o.data, { id: o.uid, username: o.username }, "prenota", "nessun pasto", descr(Object.assign({}, o, { stato: "ok" }), piattiDel(o.data)) + " (ordine sbloccato)", true, chi, true);
+    }
+    function approvaSblocco(u, p) {
+      serve(u, "addetto");
+      var c = cfg(), n = now(), x = S.rows("sblocchi").filter(function (y) { return y.id === p.id; })[0];
+      if (!x) throw err("dati", "Richiesta non trovata.");
+      if (x.stato !== "inviato") throw err("gestita", "Pasti già gestiti" + (x.gestitoDa ? " da " + x.gestitoDa : "") + ".");
+      var esiti = p.esiti || {}, ok = [], no = [], dec = [];
+      S.rows("ordini").filter(function (o) { return o.uid === x.uid && lunedi(o.data) === x.lunedi && o.stato === "attesa"; }).sort(function (a, b) { return a.data < b.data ? -1 : 1; }).forEach(function (o) {
+        var e = esiti[o.data] || p.esito; if (!e) return;
+        var g = giornoL(o.data) + " " + it(o.data).slice(0, 5);
+        if (passato(n, scadenzaApprov(o.data, c))) { S.update("ordini", "id", o.id, { stato: "decaduto", modificato: n.ts }); dec.push(g); return; }
+        if (e === "approva") {
+          if (o.data === n.date && n.time >= c.orarioSblocchi) attivaSblocco(o, u.username);
+          else S.update("ordini", "id", o.id, { stato: "approvato", modificato: n.ts });
+          ok.push(g);
+        } else { S.update("ordini", "id", o.id, { stato: "rifiutato", modificato: n.ts }); no.push(g); }
+      });
+      var resta = S.rows("ordini").some(function (o) { return o.uid === x.uid && lunedi(o.data) === x.lunedi && o.stato === "attesa"; });
+      if (!resta) S.update("sblocchi", "id", x.id, { stato: "chiuso", gestitoDa: u.username, gestitoIl: n.ts, motivo: String(p.motivo || "").slice(0, 200) });
+      var testo = "Ciao " + x.username + ", " + (ok.length ? "ho approvato i tuoi pasti di " + ok.join(", ") + ". Diventano definitivi quando l'ordine del giorno viene inviato alla mensa." : "") +
+        (no.length ? (ok.length ? " " : "") + "Non approvati: " + no.join(", ") + (p.motivo ? " (" + p.motivo + ")" : "") + "." : "") + (dec.length ? " Scaduti: " + dec.join(", ") + "." : "");
+      var e = emailUtente(x.uid); if (e && (ok.length || no.length)) manda(e, "Mensa – pasti dell'ordine sbloccato: esito", testo + "\n" + (env.appUrl || ""), null, "conferma");
+      return { ok: true, approvati: ok, rifiutati: no, scaduti: dec, condividi: testo };
+    }
+    function segnaNonConsumato(u, p) {
+      serve(u, "addetto");
+      var o = S.rows("ordini").filter(function (x) { return x.id === p.id; })[0], n = now();
+      if (!o || o.stato !== "ok") throw err("dati", "Pasto non trovato.");
+      if (o.data > n.date) throw err("dati", "Si può segnare solo da oggi in poi a giorno passato.");
+      var patch = p.valore ? { nonConsumato: true, motivoNC: String(p.motivo || "").slice(0, 200), ncDa: u.username, ncIl: n.ts } : { nonConsumato: false, motivoNC: "", ncDa: u.username, ncIl: n.ts };
+      S.update("ordini", "id", o.id, patch);
+      return { ordine: pubOrd(Object.assign({}, o, patch)) };
     }
 
     /* ---------- annullamenti: dopo l'invio dell'ordine l'utente fa una RICHIESTA che un gestore approva ---------- */
@@ -383,6 +523,7 @@ var MensaCore = (function () {
       var id = day + "_" + uid, ex = S.rows("ordini").filter(function (o) { return o.id === id; })[0];
       var sett = function () { return p.conSettimana ? settimana(u, { lunedi: lunedi(day) }) : undefined; };
       if (!ex) throw err("dati", "Non c'è un ordine da annullare.");
+      if (ex.stato === "bozza" && uid === u.id) { S.removeWhere("ordini", function (o) { return o.id === id; }); return { ok: true, tolto: true, settimana: sett() }; }
       if (ex.stato !== "ok") return { ok: true, giaAnnullato: true, settimana: sett() };   // doppio invio dopo un errore di rete
       if (!gest && st === "concluso") throw err("chiuso", "Sono passate le " + c.cutoff + ": per annullare chiama un gestore mensa.");
       if (!gest && st === "chiuso") {   // ordine già inviato: serve l'approvazione di un gestore
@@ -470,8 +611,17 @@ var MensaCore = (function () {
       serve(u, "addetto");
       var oggi = now().date, l = S.rows("richieste").filter(function (r) { return r.stato === "attesa" || r.data >= addDays(oggi, -7); })
         .sort(function (a, b) { return (a.stato === "attesa" ? 0 : 1) - (b.stato === "attesa" ? 0 : 1) || (a.ts < b.ts ? 1 : -1); });
-      return { richieste: l.map(pubRich), scadenza: cfg().approvazioniFino };
+      var c = cfg(), lunS = settimanaSbloccabile(c);
+      var sb = S.rows("sblocchi").filter(function (x) { return SB_ATTIVI.indexOf(x.stato) >= 0 || x.ts.slice(0, 10) >= addDays(oggi, -14); })
+        .sort(function (a, b) { return (x0(a) - x0(b)) || (a.ts < b.ts ? 1 : -1); }).map(function (x) {
+          return Object.assign(pubSb(x), { periodo: periodo(x.lunedi), pasti: S.rows("ordini").filter(function (o) { return o.uid === x.uid && lunedi(o.data) === x.lunedi && o.sblocco; })
+            .sort(function (a, b) { return a.data < b.data ? -1 : 1; }).map(function (o) { return { data: o.data, stato: o.stato, descr: descr(Object.assign({}, o, { stato: "ok" }), piattiDel(o.data)) }; }) }); });
+      function x0(x) { return { richiesto: 0, inviato: 0, sbloccato: 1 }[x.stato] != null ? { richiesto: 0, inviato: 0, sbloccato: 1 }[x.stato] : 2; }
+      var sbloccabili = lunS ? S.rows("utenti").filter(function (x) { return x.stato === "attivo" && senzaPasti(x.id, lunS) && !sbloccoDi(x.id, lunS); })
+        .map(function (x) { return { id: x.id, username: x.username }; }).sort(function (a, b) { return a.username.localeCompare(b.username); }) : [];
+      return { richieste: l.map(pubRich), scadenza: c.approvazioniFino, sblocchi: sb, settimanaSblocco: lunS ? { lunedi: lunS, periodo: periodo(lunS) } : null, sbloccabili: sbloccabili };
     }
+    function inAttesaGestori() { return S.rows("richieste").filter(function (x) { return x.stato === "attesa"; }).length + S.rows("sblocchi").filter(function (x) { return x.stato === "richiesto" || x.stato === "inviato"; }).length; }
     // link dall'email: pagina di conferma (un clic per aprire, un clic per confermare: i controlli antivirus che aprono i link non approvano nulla)
     function chiDaLink(r, q) {
       if (q.g) {
@@ -535,7 +685,7 @@ var MensaCore = (function () {
           chi: r.stato === "scaduta" ? "sistema" : r.gestitoDa, det: r.username + (r.motivo ? " – " + r.motivo : "") });
       });
       S.rows("registro").filter(function (r) { return r.data === day && r.dopoChiusura && r.dopo.indexOf("richiesta approvata") < 0; }).forEach(function (r) {
-        ev.push({ ts: r.ts, cosa: { annulla: "Annullato", modifica: "Modificato", prenota: "Pasto aggiunto", ripristina: "Pasto aggiunto" }[r.azione] + (r.da !== r.username ? " da gestore" : ""), chi: r.da, det: r.username + ": " + r.prima + " → " + r.dopo });
+        ev.push({ ts: r.ts, cosa: { annulla: "Annullato", modifica: "Modificato", prenota: "Pasto aggiunto", ripristina: "Pasto aggiunto" }[r.azione] + (/ordine sbloccato/.test(r.dopo) ? " (ordine sbloccato)" : r.da !== r.username ? " da gestore" : ""), chi: r.da, det: r.username + ": " + r.prima + " → " + r.dopo });
       });
       S.rows("invii").filter(function (i) { return i.data === day; }).forEach(function (i) {
         ev.push({ ts: i.ts, cosa: MODI_INVIO.test(i.modo || "") ? "Inviato alla mensa (" + i.modo.replace("segnato", "segnato a mano") + ")" : "Email ai gestori (" + i.modo + ")", chi: i.da, det: i.pasti + (i.pasti === 1 ? " pasto" : " pasti") });
@@ -543,6 +693,11 @@ var MensaCore = (function () {
       S.rows("comunicati").filter(function (r) { return r.data === day && r.motivo === "variazione"; }).forEach(function (r) {
         ev.push({ ts: r.ts, cosa: "Email variazione ai gestori", chi: "sistema", det: ((r.conteggi || {}).pasti || 0) + " pasti" });
       });
+      var SBL = { bozza: "in compilazione", attesa: "inviato, in attesa di approvazione", approvato: "approvato (entra nel totale la mattina)", rifiutato: "non approvato", decaduto: "scaduto senza approvazione" };
+      S.rows("ordini").filter(function (o) { return o.data === day && o.sblocco && SBL[o.stato]; }).forEach(function (o) {
+        ev.push({ ts: o.modificato, cosa: "Pasto da ordine sbloccato: " + SBL[o.stato], chi: o.username, det: descr(Object.assign({}, o, { stato: "ok" }), piattiDel(day)) }); });
+      S.rows("ordini").filter(function (o) { return o.data === day && o.stato === "ok" && o.nonConsumato; }).forEach(function (o) {
+        ev.push({ ts: o.ncIl || o.modificato, cosa: "Ordinato ma NON consumato", chi: o.ncDa || "", det: o.username + (o.motivoNC ? " – " + o.motivoNC : "") }); });
       return ev.sort(function (a, b) { return a.ts < b.ts ? -1 : 1; });
     }
 
@@ -594,6 +749,38 @@ var MensaCore = (function () {
       return (dp ? (dp > 0 ? "+" : "−") + Math.abs(dp) + (Math.abs(dp) === 1 ? " pasto" : " pasti") : "stessi pasti") + (parti.length ? " (" + parti.join(", ") + ")" : "");
     }
     function pl(n, a, b) { return n + " " + (n === 1 ? a : b); }
+    /* ---------- variazione: sempre rispetto all'ordine di venerdì (primo totale comunicato del giorno) ----------
+       Le variazioni del giorno si sommano; vale l'ora dell'ultima. Il testo non cambia dopo l'invio alla mensa. */
+    function rifDi(day) {
+      return S.rows("comunicati").filter(function (r) { return r.data === day && (r.motivo === "chiusura" || r.motivo === "riferimento"); })
+        .sort(function (a, b) { return a.ts < b.ts ? -1 : 1; })[0] || null;
+    }
+    function confronto(day) {
+      var rif = rifDi(day), k = conteggi(day), piatti = piattiDel(day), cv = cfg().varianti;
+      var ultima = S.rows("registro").filter(function (r) { return r.data === day && r.dopoChiusura; }).map(function (r) { return r.ts; }).sort().pop() || "";
+      if (!rif || !ultima) return null;
+      var pc = {}; Object.keys(rif.conteggi.cod || {}).forEach(function (t) { var x = canon(t, cv); pc[x] = (pc[x] || 0) + rif.conteggi.cod[t]; });
+      var righe = ordinaTok(piatti, uniq(Object.keys(pc).concat(Object.keys(k.cod)))).map(function (t) {
+        return { t: t, label: etichetta(piatti, t, cv), da: pc[t] || 0, a: k.cod[t] || 0 }; }).filter(function (x) { return x.da !== x.a; });
+      var ra = rif.conteggi.acqua || {};
+      var acqua = ["N", "G"].map(function (a) { return { label: a === "N" ? "Acqua naturale" : "Acqua gassata", da: ra[a] || 0, a: k.acqua[a] }; }).filter(function (x) { return x.da !== x.a; });
+      var d0 = rif.ts.slice(0, 10);
+      return { rif: rif, rifTesto: rif.motivo === "chiusura" ? "all'ordine inviato " + giornoL(d0) + " " + it(d0).slice(0, 5) : "all'ordine della settimana",
+        k: k, piatti: piatti, righe: righe, acqua: acqua, pastiDa: (rif.conteggi || {}).pasti || 0, pastiA: k.pasti, ultima: ultima };
+    }
+    function segno(n) { return n > 0 ? "+" + n : n < 0 ? "−" + Math.abs(n) : "0"; }
+    function righeVariazione(cf) {
+      return cf.righe.concat(cf.acqua).map(function (x) { return x.label + ": da " + x.da + " a " + x.a + " (" + segno(x.a - x.da) + ")"; });
+    }
+    function testoVariazione(day, wa) {
+      var cf = confronto(day); if (!cf) return testoGiorno(day, wa);
+      var B = wa ? "*" : "", r = righeVariazione(cf);
+      return "Buongiorno, si prega di prendere nota della seguente variazione dei pasti di " + B + giornoL(day) + " " + it(day) + B + ".\n" +
+        "Rispetto " + cf.rifTesto + (r.length ? " sono variati i seguenti piatti:\n" + r.map(function (x) { return "– " + x; }).join("\n") : " i piatti non cambiano.") + "\n" +
+        "Totale pasti aggiornato: " + B + cf.pastiA + B + " (prima " + cf.pastiDa + ").\n" +
+        "Ultima variazione: " + tsIt(cf.ultima).replace(" ore ", " alle ") + ".\n\n" +
+        (wa ? "_Ordine aggiornato del giorno_\n" : "Ordine aggiornato del giorno\n") + bloccoGiorno(day, cf.k, cf.piatti, wa) + "\nGrazie.";
+    }
     function bloccoGiorno(day, k, piatti, wa) {   // testo per la mensa di un giorno: solo totali
       var B = wa ? "*" : "", I = wa ? "_" : "";
       var t = B + cap(giornoL(day)) + " " + it(day) + B + " – " + B + pl(k.pasti, "pasto", "pasti") + B + (k.ospiti ? " (di cui ospiti " + k.ospiti + ")" : "") + "\n";
@@ -669,11 +856,16 @@ var MensaCore = (function () {
       return '<p style="font-size:9px;color:' + MUTE_ + ';border-top:1px solid ' + L_ + ';padding-top:4px;margin:8px 0 0">Omet Foodtech · Mensa ' + VERSIONE + " del " + DATA_VERSIONE + " · " + esc(stamp || "") + "</p>";
     }
     function htmlMensaGiorno(day, stamp, variazione) {   // per la mensa: solo totali
-      var piatti = piattiDel(day), k = conteggi(day), prima = variazione ? ultimoComunicato(day) : null;
-      var h = '<div class="foglio" style="' + FONT + '">' + testata(variazione ? "Ordine per la mensa · sostituisce il totale precedente" : "Ordine per la mensa", (variazione ? "VARIAZIONE · " : "") + cap(giornoL(day)) + " " + it(day), variazione ? "Modifica del " + tsIt(now().ts) : "");
+      var piatti = piattiDel(day), k = conteggi(day), cf = variazione ? confronto(day) : null;
+      if (variazione && !cf) variazione = false;
+      var h = '<div class="foglio" style="' + FONT + '">' + testata(variazione ? "Ordine per la mensa · sostituisce il totale precedente" : "Ordine per la mensa", (variazione ? "VARIAZIONE · " : "") + cap(giornoL(day)) + " " + it(day), variazione ? "Ultima variazione: " + tsIt(cf.ultima).replace(" ore ", " alle ") : "");
       h += riquadri([["Pasti", k.pasti], ["Acqua naturale", k.acqua.N], ["Acqua gassata", k.acqua.G]]);
       h += tabTotali(piatti, k);
-      if (variazione && prima) h += '<p style="font-size:12px;margin:0;padding:8px 10px;background:#FFF3C4;border-left:4px solid #E0B400">Rispetto al totale comunicato il ' + esc(tsIt(prima.ts)) + ": <b>" + esc(differenze(prima.conteggi, k, piatti)) + "</b></p>";
+      if (variazione) {
+        var rv = righeVariazione(cf);
+        h += '<div style="font-size:12px;margin:0;padding:8px 10px;background:#FFF3C4;border-left:4px solid #E0B400"><b>Variazioni rispetto ' + esc(cf.rifTesto) + "</b> · pasti da " + cf.pastiDa + " a <b>" + cf.pastiA + "</b>" +
+          (rv.length ? "<br>" + rv.map(function (x) { return "– " + esc(x); }).join("<br>") : "") + "</div>";
+      }
       return h + piede(stamp) + "</div>";
     }
     function htmlRiepilogo(day, stamp) {   // interno: totali + una riga per persona
@@ -773,6 +965,7 @@ var MensaCore = (function () {
       var tutti = S.rows("ordini").filter(function (o) { return o.data === day; }).map(pubOrd);
       var ok = tutti.filter(function (o) { return o.stato === "ok"; }).sort(function (a, b) { return (a.ospite - b.ospite) || a.username.localeCompare(b.username); });
       var ann = tutti.filter(function (o) { return o.stato === "annullato"; });
+      var sbl = tutti.filter(function (o) { return o.stato === "attesa" || o.stato === "approvato"; });
       var k = conteggi(day), ult = ultimoComunicato(day);
       var reg = S.rows("registro").filter(function (r) { return r.data === day; }).sort(function (a, b) { return a.ts < b.ts ? 1 : -1; });
       var inv = S.rows("invii").filter(function (i) { return i.data === day; }).sort(function (a, b) { return a.ts < b.ts ? 1 : -1; });
@@ -780,9 +973,10 @@ var MensaCore = (function () {
         .map(function (x) { return { id: x.id, username: x.username }; }).sort(function (a, b) { return a.username.localeCompare(b.username); });
       return {
         data: day, giorno: giornoL(day), piatti: piatti, ok: ok.map(function (o) { return Object.assign(o, { gruppi: sceltePerGruppo(piatti, o.scelte) }); }), annullati: ann,
-        conteggi: k.cod, righe: righeConteggio(piatti, k.cod, false), acqua: k.acqua, ospiti: k.ospiti,
+        conteggi: k.cod, righe: righeConteggio(piatti, k.cod, false), acqua: k.acqua, ospiti: k.ospiti, sbloccoInAttesa: sbl,
         stato: statoGiorno(day, c), cutoff: c.cutoff, registro: reg.slice(0, 200), invii: inv, senzaOrdine: senza,
-        comunicato: ult ? { ts: ult.ts, motivo: ult.motivo, differenze: differenze(ult.conteggi, k, piatti) } : null,
+        comunicato: (function () { var rf = rifDi(day) || ult; return rf ? { ts: rf.ts, motivo: rf.motivo, differenze: differenze(rf.conteggi, k, piatti) } : null; })(),
+        variazione: !!confronto(day),
         invio: statoInvio(day), storico: storico(day), richieste: S.rows("richieste").filter(function (r) { return r.data === day; }).map(pubRich)
       };
     }
@@ -792,8 +986,9 @@ var MensaCore = (function () {
       r.titolo = titolo;
       r.html = docHtml(htmlRiepilogo(p.data, stampa(u.username)), titolo + "_interno");
       r.titoloMensa = titolo; r.titolo = titolo + "_interno";
-      r.htmlMensa = docHtml(htmlMensaGiorno(p.data, stampa(u.username)), titolo);
-      r.whatsapp = testoGiorno(p.data, true) + "\nInviato da " + u.username + " il " + tsIt(now().ts);
+      var varia = !!confronto(p.data);
+      r.htmlMensa = docHtml(htmlMensaGiorno(p.data, stampa(u.username), varia), titolo);
+      r.whatsapp = varia ? testoVariazione(p.data, true) : testoGiorno(p.data, true) + "\nInviato da " + u.username + " il " + tsIt(now().ts);
       return r;
     }
     function riepilogoSettimana(u, p) {
@@ -822,6 +1017,14 @@ var MensaCore = (function () {
       var titolo = (days.length > 1 ? "mensa_giorni_" : "mensa_ordine_") + days[0] + (p.mensa ? "" : "_interno");
       if (p.controllo) { var tc = "mensa_controllo_" + days[0]; return { html: docHtml(days.map(function (d) { return htmlControllo(d, st); }).join(""), tc), titolo: tc }; }
       return { html: docHtml(days.map(function (d) { return p.mensa ? htmlMensaGiorno(d, st) : htmlRiepilogo(d, st); }).join(""), titolo), titolo: titolo };
+    }
+    // PDF vero generato dal server (per telefono / app installata, dove la stampa del browser non è affidabile)
+    function pdf(u, p) {
+      var d;
+      if (p.settimana) { serve(u, "addetto"); var ts = "mensa_settimana_" + p.lunedi; d = { html: docHtml(htmlSettimana(p.lunedi, stampa(u.username)), ts), titolo: ts }; }
+      else d = documento(u, p);
+      if (!env.pdf) return d;   // modalità prova: niente PDF dal server, si stampa dal browser
+      return { nome: d.titolo + ".pdf", b64: env.pdf(d.html, d.titolo) };
     }
     function inviaRiepilogo(u, p) {   // "Invia riepilogo via email" a chi lo chiede
       serve(u, "addetto");
@@ -858,21 +1061,28 @@ var MensaCore = (function () {
       var ord = S.rows("ordini").filter(function (o) { return o.data.slice(0, 7) === mese; });
       var reg = S.rows("registro").filter(function (r) { return r.data.slice(0, 7) === mese; });
       var per = {};
-      function riga(uid, nome) { return per[uid] || (per[uid] = { uid: uid, username: nome, pasti: 0, annullati: 0, variazioni: 0, perConto: 0, ospite: false }); }
-      ord.forEach(function (o) { var r = riga(o.uid, o.username); if (o.stato === "ok") r.pasti++; if (o.ospite) r.ospite = true; if (o.inseritoDa) r.perConto++; });
+      var tipi = {}; S.rows("utenti").forEach(function (x) { tipi[x.id] = x.tipo === "interinale" ? "Interinale" : "Dipendente"; });
+      function riga(uid, nome) { return per[uid] || (per[uid] = { uid: uid, username: nome, tipo: tipi[uid] || (String(uid).indexOf("OSP") === 0 ? "Ospite" : "Dipendente"), pasti: 0, nonConsumati: 0, annullati: 0, variazioni: 0, perConto: 0, ospite: false }); }
+      ord.forEach(function (o) {
+        if (["ok", "annullato"].indexOf(o.stato) < 0) return;   // bozze e pasti di sblocco non approvati non contano
+        var r = riga(o.uid, o.username); if (o.stato === "ok") { r.pasti++; if (o.nonConsumato) r.nonConsumati++; } if (o.ospite) r.ospite = true; if (o.inseritoDa) r.perConto++; });
       reg.forEach(function (x) {   // contano solo le modifiche fatte DOPO l'invio dell'ordine al fornitore
         if (!x.dopoChiusura) return;
         var r = riga(x.uid, x.username);
         if (x.azione === "annulla") r.annullati++; else r.variazioni++;
       });
-      var righe = Object.keys(per).map(function (k) { return per[k]; }).sort(function (a, b) { return (b.annullati - a.annullati) || a.username.localeCompare(b.username); });
-      var giorni = {}; ord.forEach(function (o) { if (o.stato === "ok") giorni[o.data] = (giorni[o.data] || 0) + 1; });
-      var tot = righe.reduce(function (s, r) { s.pasti += r.pasti; s.variazioni += r.variazioni; s.annullati += r.annullati; return s; }, { pasti: 0, variazioni: 0, annullati: 0 });
+      var ORD_T = { Dipendente: 0, Interinale: 1, Ospite: 2 };
+      var righe = Object.keys(per).map(function (k) { return per[k]; }).sort(function (a, b) { return (ORD_T[a.tipo] - ORD_T[b.tipo]) || a.username.localeCompare(b.username); });
+      var giorni = {}, giorniNC = {}; ord.forEach(function (o) { if (o.stato === "ok") { giorni[o.data] = (giorni[o.data] || 0) + 1; if (o.nonConsumato) giorniNC[o.data] = (giorniNC[o.data] || 0) + 1; } });
+      var tot = righe.reduce(function (s, r) { s.pasti += r.pasti; s.nonConsumati += r.nonConsumati; s.variazioni += r.variazioni; s.annullati += r.annullati;
+        s.perTipo[r.tipo] = s.perTipo[r.tipo] || { pasti: 0, nonConsumati: 0, annullati: 0, persone: 0 }; var t = s.perTipo[r.tipo]; t.pasti += r.pasti; t.nonConsumati += r.nonConsumati; t.annullati += r.annullati; t.persone++; return s; },
+        { pasti: 0, nonConsumati: 0, variazioni: 0, annullati: 0, perTipo: {} });
       var piattiCache = {};
-      var dettaglio = ord.slice().sort(function (a, b) { return a.data.localeCompare(b.data) || a.username.localeCompare(b.username); }).map(function (o) {
+      var dettaglio = ord.filter(function (o) { return ["ok", "annullato"].indexOf(o.stato) >= 0; }).sort(function (a, b) { return a.data.localeCompare(b.data) || a.username.localeCompare(b.username); }).map(function (o) {
         var p = piattiCache[o.data] || (piattiCache[o.data] = piattiDel(o.data));
         var an = reg.filter(function (x) { return x.uid === o.uid && x.data === o.data && x.azione === "annulla"; }).sort(function (a, b) { return a.ts < b.ts ? 1 : -1; })[0];
-        return { data: o.data, giorno: giornoL(o.data), username: o.username, stato: o.stato === "ok" ? "Consumato" : "Annullato",
+        return { data: o.data, giorno: giornoL(o.data), username: o.username, tipo: (per[o.uid] || {}).tipo || "", stato: o.stato === "ok" ? (o.nonConsumato ? "Non consumato" : "Consumato") : "Annullato",
+          motivoNC: o.stato === "ok" && o.nonConsumato ? (o.motivoNC || "") + (o.ncDa ? " (segnato da " + o.ncDa + ")" : "") : "", sblocco: !!o.sblocco,
           codici: splitCodes(o.scelte).map(function (t) { return breve(t); }).join(", "), piatti: splitCodes(o.scelte).map(function (t) { return nomeTok(p, t); }).join(", "),
           gruppi: sceltePerGruppo(p, splitCodes(o.scelte)), acqua: o.acqua === "G" ? "Gassata" : "Naturale",
           nota: o.nota || "", annullatoIl: o.stato !== "ok" && an ? an.ts : "", dopoChiusura: o.stato !== "ok" && an ? !!an.dopoChiusura : false,
@@ -885,15 +1095,15 @@ var MensaCore = (function () {
       tot.richieste = rich.length; ["approvata", "rifiutata", "scaduta", "ritirata", "attesa"].forEach(function (k) { tot["rich_" + k] = rich.filter(function (r) { return r.stato === k; }).length; });
       return {
         eventi: eventi,
-        mese: mese, righe: righe, totali: tot, perGiorno: Object.keys(giorni).sort().map(function (d) { return { data: d, giorno: giornoL(d), pasti: giorni[d] }; }),
+        mese: mese, righe: righe, totali: tot, perGiorno: Object.keys(giorni).sort().map(function (d) { return { data: d, giorno: giornoL(d), pasti: giorni[d], nonConsumati: giorniNC[d] || 0 }; }),
         dettaglio: dettaglio, annullamenti: reg.filter(function (x) { return x.azione === "annulla" && x.dopoChiusura; }).sort(function (a, b) { return a.ts < b.ts ? -1 : 1; })
       };
     }
     function csvReport(R) {
       var q = function (v) { v = String(v == null ? "" : v); return /[;"\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
-      var L = [["REPORT MENSA " + R.mese], [], ["Utente", "Pasti consumati", "Annullamenti dopo l'invio", "Variazioni dopo l'invio", "Inseriti da gestori", "Ospite"]];
-      R.righe.forEach(function (r) { L.push([r.username, r.pasti, r.annullati, r.variazioni, r.perConto, r.ospite ? "SI" : ""]); });
-      L.push(["TOTALE", R.totali.pasti, R.totali.annullati, R.totali.variazioni]);
+      var L = [["REPORT MENSA " + R.mese], [], ["Tipo", "Utente", "Pasti ordinati", "Ordinati ma non consumati", "Annullamenti dopo l'invio", "Variazioni dopo l'invio", "Inseriti da gestori", "Ospite"]];
+      R.righe.forEach(function (r) { L.push([r.tipo, r.username, r.pasti, r.nonConsumati, r.annullati, r.variazioni, r.perConto, r.ospite ? "SI" : ""]); });
+      L.push(["", "TOTALE", R.totali.pasti, R.totali.nonConsumati, R.totali.annullati, R.totali.variazioni]);
       if (R.eventi && R.eventi.length) { L.push([], ["VARIAZIONI E APPROVAZIONI"], ["Giorno", "Data/ora", "Evento", "Da", "Dettaglio"]);
         R.eventi.forEach(function (e) { L.push([it(e.data), tsIt(e.ts), e.cosa, e.chi, e.det]); }); }
       return "﻿" + L.map(function (r) { return r.map(q).join(";"); }).join("\r\n");
@@ -902,7 +1112,7 @@ var MensaCore = (function () {
     /* ---------- utenti (admin) ---------- */
     function utenti(u) {
       serve(u, "admin");
-      return { utenti: S.rows("utenti").map(pubblico).sort(function (a, b) { return (a.stato === "attesa" ? 0 : 1) - (b.stato === "attesa" ? 0 : 1) || a.username.localeCompare(b.username); }) };
+      return { utenti: S.rows("utenti").map(function (x) { return Object.assign(pubblico(x), { tipo: x.tipo === "interinale" ? "interinale" : "dipendente" }); }).sort(function (a, b) { return (a.stato === "attesa" ? 0 : 1) - (b.stato === "attesa" ? 0 : 1) || a.username.localeCompare(b.username); }) };
     }
     function gestisciUtente(u, p) {
       serve(u, "admin");
@@ -911,7 +1121,7 @@ var MensaCore = (function () {
       var patch = {}, n = now(), ris = {};
       if (x.id === u.id && (p.azione === "disattiva" || p.azione === "ruolo" || p.azione === "rifiuta")) throw err("dati", "Non puoi modificare il tuo ruolo o disattivarti da solo.");
       if (p.azione === "approva") {
-        patch = { stato: "attivo", approvatoDa: u.username, approvatoIl: n.ts, ruolo: p.ruolo || x.ruolo || "utente" };
+        patch = { stato: "attivo", approvatoDa: u.username, approvatoIl: n.ts, ruolo: p.ruolo || x.ruolo || "utente", tipo: p.tipo === "interinale" ? "interinale" : (x.tipo || "dipendente") };
         if (patch.ruolo !== "utente") patch.notifiche = true;
         if (x.email) manda(x.email, "Mensa Omet – registrazione approvata", "Ciao " + x.username + ",\nla tua registrazione alla mensa è stata approvata da " + u.username + ".\nOra puoi entrare con il tuo nome utente e PIN.\n\n" + (env.appUrl || ""), null, "approvazione");
       } else if (p.azione === "rifiuta") patch = { stato: "rifiutato", approvatoDa: u.username, approvatoIl: n.ts };
@@ -919,6 +1129,7 @@ var MensaCore = (function () {
       else if (p.azione === "riattiva") patch = { stato: "attivo" };
       else if (p.azione === "ruolo") { if (["utente", "addetto", "admin"].indexOf(p.ruolo) < 0) throw err("dati", "Ruolo non valido."); patch = { ruolo: p.ruolo, notifiche: p.ruolo !== "utente" }; }
       else if (p.azione === "notifiche") patch = { notifiche: !x.notifiche };
+      else if (p.azione === "tipo") { if (["dipendente", "interinale"].indexOf(p.tipo) < 0) throw err("dati", "Tipo non valido."); patch = { tipo: p.tipo }; }
       else if (p.azione === "resetPin") {
         var pin = String(1000 + Math.floor(Math.random() * 9000));
         patch = { pinHash: hashPin(pin, x.salt), errori: 0, bloccatoFino: "" }; ris.pin = pin;
@@ -926,7 +1137,7 @@ var MensaCore = (function () {
       } else throw err("dati", "Azione non valida.");
       if (p.azione === "disattiva" || p.azione === "rifiuta") S.removeWhere("sessioni", function (s) { return s.uid === x.id; });
       S.update("utenti", "id", x.id, patch);
-      ris.utente = pubblico(Object.assign({}, x, patch));
+      ris.utente = Object.assign(pubblico(Object.assign({}, x, patch)), { tipo: (patch.tipo || x.tipo) === "interinale" ? "interinale" : "dipendente" });
       return ris;
     }
 
@@ -965,13 +1176,13 @@ var MensaCore = (function () {
       if (!futuri.length) { segna(); return ""; }
       var t = "", wa = "", fogli = "", st = stampa("", true);
       futuri.forEach(function (d) {
-        fogli += htmlMensaGiorno(d, st, true);   // prima di salvare il nuovo totale: contiene la differenza
-        var prima = ultimoComunicato(d), k = conteggi(d), p = piattiDel(d);
+        fogli += htmlMensaGiorno(d, st, true);   // contiene le variazioni rispetto all'ordine di venerdì
+        var cf = confronto(d), k = conteggi(d), p = piattiDel(d);
         var chi = coda.filter(function (r) { return r.data === d; }).map(function (r) { return "  " + tsIt(r.ts).slice(11) + " " + r.username + ": " + ({ annulla: "annullato", modifica: "modificato", ripristina: "aggiunto", prenota: "aggiunto" }[r.azione] || r.azione) + (r.da !== r.username ? " (da " + r.da + ")" : ""); });
         t += "VARIAZIONE MENSA – " + giornoL(d).toUpperCase() + " " + it(d) + "\nModifica del " + tsIt(n.ts) + "\n\n" + bloccoGiorno(d, k, p, false) +
-          "\nRispetto all'ultimo totale comunicato" + (prima ? " (" + tsIt(prima.ts) + ")" : "") + ": " + differenze(prima && prima.conteggi, k, p) + "\n" +
+          (cf ? "\nVariazioni rispetto " + cf.rifTesto + " (pasti da " + cf.pastiDa + " a " + cf.pastiA + "):\n" + righeVariazione(cf).map(function (x) { return "  – " + x; }).join("\n") + "\n" : "") +
           "Dettaglio (solo per i gestori mensa):\n" + chi.join("\n") + "\n\n";
-        wa += "*OMET – VARIAZIONE MENSA*\n" + bloccoGiorno(d, k, p, true) + "Modifica del " + tsIt(n.ts) + "\n\n";
+        wa += testoVariazione(d, true) + "\n\n";
         salvaComunicato(d, "variazione");
       });
       segna();
@@ -994,6 +1205,18 @@ var MensaCore = (function () {
         if (!conEmail && n.date < lun) return;            // weekend: aspetta (in pratica la chiusura è il venerdì)
         segnaFatto("chiusura_" + lun);
         fatti.push(chiudiSettimana(lun, conEmail));
+      });
+      // 1b) sblocchi: email in coda, pasti approvati che entrano nel totale la mattina del giorno, scadenze
+      S.rows("sblocchi").forEach(function (x) {
+        if ((x.stato === "richiesto" || x.stato === "inviato") && !x.notificata && feriale) { avvisaSblocco(x); fatti.push("sblocco " + x.id); }
+        if ((x.stato === "richiesto" || x.stato === "sbloccato") && passato(n, fineSblocco(x.lunedi, c))) S.update("sblocchi", "id", x.id, { stato: "scaduto", gestitoIl: n.ts });
+      });
+      S.rows("ordini").forEach(function (o) {
+        if (o.stato === "approvato" && o.data <= n.date && (o.data < n.date || n.time >= c.orarioSblocchi)) { attivaSblocco(o, "automatico (ordine sbloccato)"); fatti.push("sblocco attivo " + o.id); }
+        else if ((o.stato === "attesa" || o.stato === "bozza") && passato(n, scadenzaApprov(o.data, c))) { S.update("ordini", "id", o.id, { stato: "decaduto", modificato: n.ts }); fatti.push("decaduto " + o.id); }
+      });
+      S.rows("sblocchi").forEach(function (x) {   // inviato ma senza più pasti in attesa (tutti decaduti): si chiude
+        if (x.stato === "inviato" && !S.rows("ordini").some(function (o) { return o.uid === x.uid && lunedi(o.data) === x.lunedi && o.stato === "attesa"; })) S.update("sblocchi", "id", x.id, { stato: "chiuso", gestitoIl: n.ts });
       });
       // 2) variazioni in coda (mai nel weekend)
       if (feriale) { var v = mandaVariazioni(); if (v) fatti.push(v); }
@@ -1036,7 +1259,7 @@ var MensaCore = (function () {
       serve(u, "admin");
       if (p && p.salva) {
         var v = p.salva;
-        ["cutoff", "chiusuraOra", "approvazioniFino", "orarioControllo"].forEach(function (k) { if (v[k] && !/^\d{2}:\d{2}$/.test(v[k])) throw err("dati", "Orario non valido."); });
+        ["cutoff", "chiusuraOra", "approvazioniFino", "orarioControllo", "orarioSblocchi"].forEach(function (k) { if (v[k] && !/^\d{2}:\d{2}$/.test(v[k])) throw err("dati", "Orario non valido."); });
         if (v.varianti) { var vv = {}; Object.keys(v.varianti).forEach(function (k) { var l = (v.varianti[k] || []).map(function (x) { return String(x).trim().toLowerCase(); }).filter(Boolean); if (k.trim() && l.length >= 2) vv[k.trim().toUpperCase()] = uniq(l); }); v.varianti = vv; }
         setCfg(v);
       }
@@ -1050,7 +1273,7 @@ var MensaCore = (function () {
         var w0 = aperta || sett.filter(function (w) { return w.giorni.some(function (d) { return d >= oggi; }); })[0];
         lun = w0 ? w0.lunedi : (sett.length ? sett[sett.length - 1].lunedi : "");
       }
-      var pub = { cutoff: c.cutoff, chiusuraGiorno: c.chiusuraGiorno, chiusuraOra: c.chiusuraOra, aperturaGiorno: c.aperturaGiorno, variazioni: c.variazioni, limiti: c.limiti, minPiatti: c.minPiatti, nomeMensa: c.nomeMensa, varianti: c.varianti, approvazioniFino: c.approvazioniFino };
+      var pub = { cutoff: c.cutoff, chiusuraGiorno: c.chiusuraGiorno, chiusuraOra: c.chiusuraOra, aperturaGiorno: c.aperturaGiorno, variazioni: c.variazioni, limiti: c.limiti, minPiatti: c.minPiatti, nomeMensa: c.nomeMensa, varianti: c.varianti, approvazioniFino: c.approvazioniFino, orarioSblocchi: c.orarioSblocchi };
       // pasto di oggi, per il riquadro in alto
       var po = piattiDel(oggi), oo = S.rows("ordini").filter(function (o) { return o.data === oggi && o.uid === u.id; })[0];
       var r = { io: pubblico(u), cfg: pub, settimane: sett.map(function (w) { return Object.assign(w, infoSettimana(w.lunedi, c)); }), oggi: oggi, ora: now().time,
@@ -1058,7 +1281,7 @@ var MensaCore = (function () {
         pastoOggi: po.length ? { data: oggi, ordine: oo ? pubOrd(oo) : null, piatti: po, stato: statoGiorno(oggi, c) } : null };
       if (u.ruolo === "admin") r.inAttesa = S.rows("utenti").filter(function (x) { return x.stato === "attesa"; }).length;
       if (isAddetto(u)) {
-        r.richiesteAttesa = S.rows("richieste").filter(function (x) { return x.stato === "attesa"; }).length;
+        r.richiesteAttesa = inAttesaGestori();
         var dg = [oggi].concat(giorniSettimana(lunedi(oggi)).filter(function (d) { return d > oggi; })).filter(function (d) { return piattiDel(d).length && statoInvio(d).daInviare; });
         r.daInviare = dg;
       }
@@ -1075,8 +1298,9 @@ var MensaCore = (function () {
     var PRIVATE = {
       io: io, esci: esci, profilo: profilo, settimana: settimana, salvaOrdine: salvaOrdine, annullaOrdine: annullaOrdine, ultimoOrdine: ultimoOrdine,
       riepilogo: riepilogo, riepilogoSettimana: riepilogoSettimana, registraInvio: registraInvio, documento: documento, inviaRiepilogo: inviaRiepilogo,
-      richieste: richieste, gestisciRichiesta: gestisciRichiesta, ritiraRichiesta: ritiraRichiesta,
-      statoGestore: function (u) { serve(u, "addetto"); var o = now().date; return { richiesteAttesa: S.rows("richieste").filter(function (x) { return x.stato === "attesa"; }).length,
+      richieste: richieste, gestisciRichiesta: gestisciRichiesta, ritiraRichiesta: ritiraRichiesta, pdf: pdf,
+      richiediSblocco: richiediSblocco, sblocca: sblocca, rifiutaSblocco: rifiutaSblocco, inviaSblocco: inviaSblocco, approvaSblocco: approvaSblocco, segnaNonConsumato: segnaNonConsumato,
+      statoGestore: function (u) { serve(u, "addetto"); var o = now().date; return { richiesteAttesa: inAttesaGestori(),
         daInviare: [o].concat(giorniSettimana(lunedi(o)).filter(function (d) { return d > o; })).filter(function (d) { return piattiDel(d).length && statoInvio(d).daInviare; }) }; },
       archivio: archivio, salvaMenu: salvaMenu, eliminaGiorno: eliminaGiorno, utenti: utenti, gestisciUtente: gestisciUtente, impostazioni: impostazioni,
       report: function (u, p) { serve(u, "admin"); return calcReport(p.mese); },
